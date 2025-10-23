@@ -1,0 +1,41 @@
+# Claude Code configuration
+/.claude
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Project-specific exclusions
+/transcripts          # VTT transcripts and content files
+/logos                # Proprietary logo files
+
+# Streamlit secrets (API keys, credentials)
+.streamlit/secrets.toml
+
+# Operating system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Output files (optional - comment out if you want to track outputs)
+*_portrait_stacked.mp4
+*_clip*.mp4
+*_preview.mp4
+*_layout_preview.jpg
+
+# Video files
+stacked_script/videos
+
+# Transcripts
+transcripts
