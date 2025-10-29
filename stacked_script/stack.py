@@ -50,6 +50,81 @@ def parse_time_input(time_str):
         except ValueError:
             return None
 
+def trim_video(input_path, output_path, trim_start=0, trim_end=0):
+    """Trim seconds from the beginning and/or end of a video
+
+    Args:
+        input_path: Path to the input video file
+        output_path: Path where the trimmed video should be saved
+        trim_start: Seconds to trim from the beginning (default: 0, max: 5)
+        trim_end: Seconds to trim from the end (default: 0, max: 5)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        print(f"\n{'='*60}")
+        print("TRIMMING VIDEO...")
+        print("="*60)
+        print(f"Input: {input_path.name}")
+
+        # Validate trim values
+        trim_start = max(0, min(5, trim_start))
+        trim_end = max(0, min(5, trim_end))
+
+        print(f"Trimming {trim_start}s from start, {trim_end}s from end")
+
+        # Load the video
+        clip = VideoFileClip(str(input_path))
+        original_duration = clip.duration
+
+        # Calculate new duration
+        new_duration = original_duration - trim_start - trim_end
+
+        if new_duration <= 0:
+            print("✗ Error: Trim values would result in zero or negative duration")
+            clip.close()
+            return False
+
+        print(f"Original duration: {original_duration:.2f}s")
+        print(f"New duration: {new_duration:.2f}s")
+
+        # Trim the video
+        trimmed_clip = clip.subclipped(trim_start, original_duration - trim_end)
+
+        # Write the output
+        print(f"Saving trimmed video to: {output_path.name}")
+        trimmed_clip.write_videofile(
+            str(output_path),
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile='temp-audio-trim.m4a',
+            remove_temp=True,
+            fps=30,
+            logger='bar'
+        )
+
+        # Clean up
+        clip.close()
+        trimmed_clip.close()
+
+        print(f"\n{'='*60}")
+        print("TRIM COMPLETE!")
+        print("="*60)
+        print(f"Trimmed video saved: {output_path.name}")
+        print(f"Duration: {new_duration:.2f} seconds")
+        print("="*60)
+
+        return True
+
+    except Exception as e:
+        print(f"\n{'='*60}")
+        print("ERROR TRIMMING VIDEO")
+        print("="*60)
+        print(f"Error: {str(e)}")
+        print("="*60)
+        return False
+
 def create_layout_preview(video_paths, output_path, num_videos=3, sample_time=5.0):
     """Create a static image preview of the final video layout
 
@@ -809,13 +884,15 @@ def display_menu(video_files):
     print("VIDEO STACKER - Portrait Format Creator")
     print("="*60)
     print("\nAvailable MP4 files:")
-    
+
     for i, video in enumerate(video_files, 1):
         print(f"{i}. {video.name}")
-    
+
     print("\nModes:")
     print("- 2 videos: 50/50 split with center-cropped videos (fills entire screen)")
     print("- 3 videos: Three equal sections stacked vertically")
+    print("- 4 videos: Four equal sections stacked vertically")
+    print("- multi: Random quick cuts between videos (2.5-3.5 seconds each)")
     return video_files
 
 def get_user_selection(video_files):
@@ -823,32 +900,44 @@ def get_user_selection(video_files):
     # First, ask how many videos to use
     while True:
         try:
-            num_videos = input("\nHow many videos do you want to combine? (2 or 3): ")
-            num_videos = int(num_videos)
-            if num_videos in [2, 3]:
+            mode_input = input("\nHow many videos do you want to combine? (2, 3, 4, or 'multi'): ").strip().lower()
+
+            # Handle 'multi' mode
+            if mode_input == 'multi':
+                print("\nMulti-cut mode selected!")
+                print("All available videos will be used with random quick cuts (2.5-3.5 seconds each)")
+                # Return all videos for multi-cut mode
+                return video_files, 'multi'
+
+            # Handle numeric modes
+            num_videos = int(mode_input)
+            if num_videos in [2, 3, 4]:
                 break
             else:
-                print("Please enter 2 or 3")
+                print("Please enter 2, 3, 4, or 'multi'")
         except ValueError:
-            print("Please enter a valid number (2 or 3)")
-    
+            print("Please enter a valid number (2, 3, 4) or 'multi'")
+
     selected_videos = []
-    
+
     if num_videos == 2:
         positions = ["screen recording (top)", "speaker (bottom)"]
         print("\n50/50 split layout")
         print("Screen recording will fill the top half (center-cropped)")
         print("Speaker video will fill the bottom half (center-cropped)")
-    else:
+    elif num_videos == 3:
         positions = ["top", "middle", "bottom"]
         print("\nThree equal sections")
-    
+    else:  # 4 videos
+        positions = ["top", "2nd", "3rd", "bottom"]
+        print("\nFour equal sections")
+
     for i, position in enumerate(positions):
         while True:
             try:
                 choice = input(f"\nSelect video for {position} position (1-{len(video_files)}): ")
                 index = int(choice) - 1
-                
+
                 if 0 <= index < len(video_files):
                     if video_files[index] in selected_videos:
                         print("Video already selected. Please choose a different one.")
@@ -860,8 +949,352 @@ def get_user_selection(video_files):
                     print(f"Please enter a number between 1 and {len(video_files)}")
             except ValueError:
                 print("Please enter a valid number")
-    
+
     return selected_videos, num_videos
+
+def create_multi_cut_video(video_paths, output_path, start_time=0, duration=None, subtitle_path=None, title_text=None, progress_callback=None):
+    """Create portrait video with random quick cuts between source videos
+
+    Args:
+        video_paths: List of video file paths (2-4 videos)
+        output_path: Output video path
+        start_time: Start time for clipping
+        duration: Duration for clipping
+        subtitle_path: Optional path to SRT subtitle file
+        title_text: Optional title text to burn at top (max 50 characters)
+        progress_callback: Optional callback function(current_frame, total_frames) for progress updates
+    """
+    import random
+    import time
+    start_processing_time = time.time()
+
+    print(f"\n{'='*60}")
+    print("CREATING MULTI-CUT VIDEO...")
+    print("="*60)
+    print(f"Mode: Quick cuts alternating between {len(video_paths)} videos")
+    print(f"Cut duration: Random 2.5-3.5 seconds per segment")
+
+    # Load video clips
+    clips = []
+    for i, path in enumerate(video_paths):
+        print(f"Loading video {i+1}: {path.name}")
+        clip = VideoFileClip(str(path))
+        clips.append(clip)
+
+    # Determine duration for processing
+    min_duration = min(clip.duration for clip in clips)
+
+    if duration:
+        target_duration = min(duration, min_duration - start_time)
+        end_time = start_time + target_duration
+        print(f"\nProcessing {target_duration:.2f} seconds from time {start_time:.1f}s to {end_time:.1f}s")
+    else:
+        target_duration = min_duration - start_time
+        end_time = min_duration
+        print(f"\nProcessing full duration: {target_duration:.2f} seconds")
+
+    # Trim all clips to the target duration starting from start_time
+    clips = [clip.subclipped(start_time, end_time) for clip in clips]
+
+    # Define target dimensions for portrait format
+    target_width = 1080
+    target_height = 1920
+
+    print(f"\nTarget output resolution: {target_width}x{target_height}")
+    print("Each video will fill the entire screen with center-cropping")
+
+    # Generate random cut schedule
+    print(f"\nGenerating random cut schedule...")
+    cut_schedule = []
+    current_time = 0.0
+    video_indices = list(range(len(video_paths)))
+
+    # Track previous video selections to enforce alternation
+    last_video_index = None
+    consecutive_count = 0
+
+    while current_time < target_duration:
+        # Random duration between 2.5-3.5 seconds
+        segment_duration = random.uniform(2.5, 3.5)
+
+        # Don't exceed total duration
+        if current_time + segment_duration > target_duration:
+            segment_duration = target_duration - current_time
+
+        # Choose a video with alternation constraint (max 2 consecutive)
+        if consecutive_count >= 2:
+            # Force switch to a different video
+            available_videos = [idx for idx in video_indices if idx != last_video_index]
+            video_index = random.choice(available_videos)
+            consecutive_count = 1
+        else:
+            # Can choose any video, but prefer switching
+            video_index = random.choice(video_indices)
+
+            # Check if we're continuing with the same video
+            if video_index == last_video_index:
+                consecutive_count += 1
+            else:
+                consecutive_count = 1
+
+        cut_schedule.append({
+            'start': current_time,
+            'end': current_time + segment_duration,
+            'duration': segment_duration,
+            'video_index': video_index
+        })
+
+        last_video_index = video_index
+        current_time += segment_duration
+
+    print(f"✓ Created {len(cut_schedule)} segments")
+    for i, segment in enumerate(cut_schedule):
+        print(f"  Segment {i+1}: {segment['start']:.1f}s-{segment['end']:.1f}s ({segment['duration']:.1f}s) - Video {segment['video_index']+1}")
+
+    # Process and resize each clip to fill portrait screen
+    print(f"\nProcessing and resizing videos...")
+    resized_clips = []
+
+    for i, clip in enumerate(clips):
+        print(f"Processing video {i+1}...")
+
+        # Check original audio status
+        has_audio_before = "✓" if clip.audio is not None else "✗"
+        print(f"  Original audio: {has_audio_before}")
+
+        # Store original audio to preserve it
+        original_audio = clip.audio
+
+        # Resize to target width while maintaining aspect ratio
+        clip_resized = clip.resized(width=target_width)
+
+        # Center-crop vertically if height exceeds target
+        if clip_resized.h > target_height:
+            y_center = clip_resized.h // 2
+            y_start = y_center - (target_height // 2)
+            clip_resized = clip_resized.cropped(y1=y_start, y2=y_start + target_height)
+            print(f"  ✓ Zoomed and center-cropped vertically to {target_width}x{target_height}")
+        else:
+            # If video is shorter than target, resize to fill height and crop horizontally
+            clip_resized = clip_resized.resized(height=target_height)
+            if clip_resized.w > target_width:
+                x_center = clip_resized.w // 2
+                x_start = x_center - (target_width // 2)
+                clip_resized = clip_resized.cropped(x1=x_start, x2=x_start + target_width)
+                print(f"  ✓ Zoomed and center-cropped horizontally to {target_width}x{target_height}")
+
+        # Explicitly preserve audio after transformations
+        if original_audio is not None:
+            clip_resized = clip_resized.with_audio(original_audio)
+            print(f"  ✓ Audio preserved")
+        else:
+            print(f"  ⚠ No audio to preserve")
+
+        resized_clips.append(clip_resized)
+
+    # Create video segments from cut schedule
+    print(f"\nCreating video segments...")
+    video_segments = []
+
+    for i, segment in enumerate(cut_schedule):
+        video_idx = segment['video_index']
+        seg_start = segment['start']  # Timeline position in the output
+        seg_end = segment['end']      # Timeline position in the output
+        seg_duration = segment['duration']
+
+        # Extract segment from the source video at the SAME timeline position
+        # This keeps video in sync with the continuous mixed audio
+        source_start = seg_start
+        source_end = seg_end
+
+        # Make sure we don't exceed the source video duration
+        if source_end > resized_clips[video_idx].duration:
+            # If the segment extends beyond this video's duration, truncate it
+            source_end = resized_clips[video_idx].duration
+            print(f"  ⚠ Segment {i+1}: Video {video_idx+1} too short, truncating to {source_end:.1f}s")
+
+        # Extract the segment from the chosen video
+        segment_clip = resized_clips[video_idx].subclipped(source_start, source_end)
+
+        # Verify audio is present after subclipping
+        has_audio_after_subclip = "✓" if segment_clip.audio is not None else "✗"
+
+        video_segments.append(segment_clip)
+
+        print(f"  ✓ Segment {i+1}: Video {video_idx+1} from {source_start:.1f}s to {source_end:.1f}s (duration: {seg_duration:.1f}s) - Audio: {has_audio_after_subclip}")
+
+    # Concatenate all segments (video only, we'll add mixed audio separately)
+    print(f"\nConcatenating {len(video_segments)} video segments...")
+    from moviepy import concatenate_videoclips, CompositeAudioClip
+
+    # Debug: Check which segments have audio
+    for i, seg in enumerate(video_segments):
+        has_audio = "✓" if seg.audio is not None else "✗"
+        print(f"  Segment {i+1}: Audio {has_audio}")
+
+    # Concatenate video segments without audio (we'll add mixed audio next)
+    final_video = concatenate_videoclips(video_segments, method="compose")
+
+    # Mix audio from ALL source videos throughout the entire duration
+    # This ensures all audio plays continuously regardless of which video is shown
+    print(f"\nMixing audio from all {len(clips)} source videos to play continuously...")
+    audio_tracks = []
+    for i, clip in enumerate(clips):
+        if clip.audio is not None:
+            print(f"  ✓ Adding continuous audio from video {i+1}")
+            audio_tracks.append(clip.audio)
+        else:
+            print(f"  ⚠ Video {i+1} has no audio track")
+
+    if audio_tracks:
+        # Composite all audio tracks together (they all play at once)
+        mixed_audio = CompositeAudioClip(audio_tracks)
+        final_video = final_video.with_audio(mixed_audio)
+        print(f"✓ Mixed audio from {len(audio_tracks)} video(s) - all audio plays continuously")
+    else:
+        print("⚠ Warning: No audio tracks found in any source video")
+
+    # Add logo overlay
+    # Logo is in the parent directory's logos folder
+    logo_path = Path(__file__).parent.parent / "logos" / "dd_podcast.png"
+    if logo_path.exists():
+        print("\nAdding logo overlay...")
+        try:
+            logo_clip = ImageClip(str(logo_path))
+            logo_height = target_height // 6  # 1/6 of screen height for full-screen mode
+            logo_resized = logo_clip.resized(height=logo_height)
+            logo_positioned = logo_resized.with_position((2, 2)).with_duration(target_duration)
+
+            # Composite logo onto video
+            final_video = CompositeVideoClip([final_video, logo_positioned], size=(target_width, target_height))
+            print(f"✓ Logo added at upper left (size: {logo_resized.w}x{logo_resized.h})")
+        except Exception as e:
+            print(f"Warning: Could not add logo overlay: {e}")
+    else:
+        print(f"\nWarning: Logo file not found at {logo_path}")
+
+    # Determine output path - if subtitles or title, create temp file first
+    if subtitle_path or title_text:
+        temp_output = output_path.parent / f"temp_{output_path.name}"
+        final_output = output_path
+    else:
+        temp_output = output_path
+        final_output = output_path
+
+    # Write the output file
+    print(f"\nSaving to: {temp_output if (subtitle_path or title_text) else output_path}")
+    print("This may take several minutes depending on video length and quality...")
+
+    logger = 'bar'
+
+    final_video.write_videofile(
+        str(temp_output),
+        codec='libx264',
+        audio_codec='aac',
+        temp_audiofile='temp-audio.m4a',
+        remove_temp=True,
+        fps=30,
+        logger=logger
+    )
+
+    # Clean up
+    for clip in clips:
+        clip.close()
+    for clip in resized_clips:
+        clip.close()
+    for segment in video_segments:
+        segment.close()
+    final_video.close()
+
+    # Burn subtitles and/or title text using FFmpeg
+    if subtitle_path or title_text:
+        print(f"\n{'='*60}")
+        if subtitle_path and title_text:
+            print("BURNING SUBTITLES AND TITLE")
+        elif subtitle_path:
+            print("BURNING SUBTITLES")
+        else:
+            print("BURNING TITLE")
+        print("="*60)
+
+        vf_filters = []
+
+        # Add subtitle filter if provided
+        if subtitle_path:
+            # For multi-cut mode, use lower position (300px from bottom)
+            margin_vertical = 300
+            print(f"Caption position: {margin_vertical}px from bottom (multi-cut mode)")
+
+            ass_path = subtitle_path.parent / f"{subtitle_path.stem}_temp.ass"
+            if convert_srt_to_ass_with_positioning(subtitle_path, ass_path, margin_vertical):
+                vf_filters.append(f"ass={str(ass_path.absolute())}")
+
+        # Add title text filter if provided
+        if title_text:
+            title_text = title_text[:50]
+            title_text_escaped = title_text.replace("'", "'\\''").replace(":", "\\:")
+
+            logo_height = target_height // 6
+            logo_x_offset = logo_height + 20
+            title_y = 50
+
+            title_filter = (
+                f"drawtext=text='{title_text_escaped}':"
+                f"fontfile=/Users/jason.hand/Library/Fonts/National2-Bold.otf:"
+                f"fontsize=80:"
+                f"fontcolor=white:"
+                f"borderw=3:"
+                f"bordercolor=#34008D:"
+                f"x={logo_x_offset}:"
+                f"y={title_y}"
+            )
+            vf_filters.append(title_filter)
+            print(f"Title text: '{title_text}' (position: top left next to logo)")
+
+        # Combine filters
+        if vf_filters:
+            vf_string = ",".join(vf_filters)
+
+            command = [
+                'ffmpeg',
+                '-i', str(temp_output.absolute()),
+                '-vf', vf_string,
+                '-codec:a', 'copy',
+                '-y',
+                str(final_output.absolute())
+            ]
+
+            print("Running FFmpeg to burn text overlays...")
+            result = subprocess.run(command, capture_output=True, text=True, cwd=str(temp_output.parent))
+
+            if subtitle_path:
+                try:
+                    ass_path.unlink()
+                except:
+                    pass
+
+            if result.returncode == 0:
+                print("✓ Text overlays burned successfully!")
+                try:
+                    temp_output.unlink()
+                    print(f"✓ Removed temporary file: {temp_output.name}")
+                except Exception as e:
+                    print(f"Warning: Could not remove temp file: {e}")
+            else:
+                print(f"⚠ Warning: Text overlay burning failed. Using video without overlays.")
+                if temp_output.exists() and not final_output.exists():
+                    temp_output.rename(final_output)
+
+    print(f"\n{'='*60}")
+    print("MULTI-CUT VIDEO CREATED!")
+    print("="*60)
+    final_file = final_output if (subtitle_path or title_text) else output_path
+    print(f"Portrait video created: {final_file.name}")
+    print(f"Duration: {target_duration:.2f} seconds")
+    print(f"Segments: {len(cut_schedule)} quick cuts")
+    print(f"Resolution: {target_width}x{target_height}")
+    print("Ready for YouTube Shorts and TikTok!")
+    print("="*60)
 
 def create_portrait_video(video_paths, output_path, num_videos=3, preview_only=False, start_time=0, duration=None, subtitle_path=None, title_text=None, progress_callback=None, crop_to_fill=True):
     """Create portrait video by stacking videos
@@ -1198,7 +1631,7 @@ def create_portrait_video(video_paths, output_path, num_videos=3, preview_only=F
             # Logo is at x=2, with its width, so text starts after logo + small gap
             # Assuming logo aspect ratio is roughly square, logo_width ≈ logo_height
             logo_x_offset = logo_height + 20  # logo width + 20px gap
-            title_y = 45  # 45px from top (moved down further for better spacing)
+            title_y = 50  # 50px from top (moved down for better spacing)
 
             # Title styling: National 2 font, 80pt, white with dark purple outline
             # Outline color matches caption outline: #34008D (dark purple)
@@ -1449,29 +1882,45 @@ def main():
 
     # Generate output filename
     timestamp = Path(selected_videos[0]).stem
-    output_filename = f"{timestamp}_portrait_stacked.mp4"
+    if num_videos == 'multi':
+        output_filename = f"{timestamp}_portrait_multicut.mp4"
+    else:
+        output_filename = f"{timestamp}_portrait_stacked.mp4"
     output_path = directory / output_filename
-    
+
     # Confirm before processing
     print(f"\n{'='*60}")
     print("CONFIRMATION")
     print("="*60)
-    
-    if num_videos == 2:
+
+    if num_videos == 'multi':
+        print("Selected mode: Multi-cut (random quick cuts)")
+        print(f"All {len(selected_videos)} videos will be used:")
+        for i, video in enumerate(selected_videos, 1):
+            print(f"{i}. {video.name}")
+        print("\n→ Videos will alternate randomly every 2.5-3.5 seconds")
+        print("→ Each video will fill the entire screen (center-cropped)")
+    elif num_videos == 2:
         print("Selected videos (2-video mode):")
         print(f"1. Screen recording (top 50%): {selected_videos[0].name}")
         print("   → Will be center-cropped to fill top half of screen")
         print(f"2. Speaker (bottom 50%): {selected_videos[1].name}")
         print("   → Will be center-cropped to fill bottom half of screen")
-    else:
+    elif num_videos == 3:
         print("Selected videos (3-video mode - top to bottom):")
+        for i, video in enumerate(selected_videos, 1):
+            print(f"{i}. {video.name}")
+    else:  # 4 videos
+        print("Selected videos (4-video mode - top to bottom):")
         for i, video in enumerate(selected_videos, 1):
             print(f"{i}. {video.name}")
 
     print(f"\nOutput file: {output_filename}")
 
-    # Ask if user wants to see a layout preview image
-    want_layout_preview = ask_for_layout_preview()
+    # Ask if user wants to see a layout preview image (skip for multi mode)
+    want_layout_preview = False
+    if num_videos != 'multi':
+        want_layout_preview = ask_for_layout_preview()
 
     if want_layout_preview:
         # Create layout preview filename
@@ -1523,28 +1972,23 @@ def main():
                 import time
                 clip_start_time = time.time()
 
-                # Create clip WITHOUT subtitles first
-                create_portrait_video(selected_videos, clip_path, num_videos,
-                                    preview_only=False, start_time=start_time,
-                                    duration=clip_duration, subtitle_path=None)
+                # Get subtitles first
+                subtitle_file = get_existing_subtitles(directory, start_time=start_time, duration=clip_duration)
 
-                # NOW ask if user wants subtitles - check VTT first, then offer Whisper
-                subtitle_file = get_subtitles_for_clip(clip_path, directory, start_time, clip_duration)
-
-                # If subtitles were generated/extracted, re-encode the clip WITH subtitles
-                if subtitle_file:
-                    print(f"\nRe-encoding clip with subtitles...")
-                    # Create temporary path for clip without subtitles
-                    temp_clip_path = directory / f"{timestamp}_clip{i}_{clip_duration}s_temp.mp4"
-                    clip_path.rename(temp_clip_path)
-
-                    # Re-create the clip with subtitles
+                # Create clip with appropriate function based on mode
+                if num_videos == 'multi':
+                    # Multi-cut mode
+                    create_multi_cut_video(selected_videos, clip_path,
+                                         start_time=start_time,
+                                         duration=clip_duration,
+                                         subtitle_path=subtitle_file)
+                else:
+                    # Standard stacking modes
                     create_portrait_video(selected_videos, clip_path, num_videos,
                                         preview_only=False, start_time=start_time,
                                         duration=clip_duration, subtitle_path=subtitle_file)
 
-                    # Remove temporary file
-                    temp_clip_path.unlink()
+                if subtitle_file:
                     print(f"✓ Clip {i} completed with subtitles!")
                 else:
                     print(f"✓ Clip {i} completed without subtitles!")
@@ -1623,9 +2067,15 @@ def main():
         preview_path = directory / preview_filename
 
         try:
-            # Create the preview with subtitles
-            create_portrait_video(selected_videos, preview_path, num_videos,
-                                preview_only=True, start_time=preview_start, subtitle_path=preview_subtitle_file)
+            # Create the preview with appropriate function based on mode
+            if num_videos == 'multi':
+                create_multi_cut_video(selected_videos, preview_path,
+                                     start_time=preview_start,
+                                     duration=preview_duration,
+                                     subtitle_path=preview_subtitle_file)
+            else:
+                create_portrait_video(selected_videos, preview_path, num_videos,
+                                    preview_only=True, start_time=preview_start, subtitle_path=preview_subtitle_file)
 
             # Ask user to review and confirm
             print(f"\n{'='*60}")
@@ -1633,9 +2083,14 @@ def main():
             print("="*60)
             print(f"Preview saved as: {preview_filename}")
             print("Please review the preview video to check:")
-            print("• Caption styling, positioning, and colors")
-            print("• Screen recording zoom and positioning")
-            print("• Speaker cropping and centering")
+            if num_videos == 'multi':
+                print("• Quick cut transitions between videos")
+                print("• Video cropping and centering")
+                print("• Caption styling, positioning, and colors")
+            else:
+                print("• Caption styling, positioning, and colors")
+                print("• Screen recording zoom and positioning")
+                print("• Speaker cropping and centering")
             print("• Overall layout and quality")
 
             proceed = input("\nDo you want to proceed with the full video? (y/n): ").strip().lower()
@@ -1657,8 +2112,14 @@ def main():
     subtitle_file = get_existing_subtitles(directory, start_time=0, duration=min_duration)
 
     try:
-        # Create the full portrait video
-        create_portrait_video(selected_videos, output_path, num_videos, subtitle_path=subtitle_file)
+        # Create the full portrait video with appropriate function based on mode
+        if num_videos == 'multi':
+            create_multi_cut_video(selected_videos, output_path,
+                                 start_time=0,
+                                 duration=None,
+                                 subtitle_path=subtitle_file)
+        else:
+            create_portrait_video(selected_videos, output_path, num_videos, subtitle_path=subtitle_file)
 
         # Clean up .srt files after successful video creation
         cleanup_subtitle_files(directory)

@@ -16,8 +16,10 @@ import base64
 # Import functions from the main script
 from stacked_script.stack import (
     create_portrait_video,
+    create_multi_cut_video,
     create_layout_preview,
-    get_vtt_files
+    get_vtt_files,
+    trim_video
 )
 
 # Page configuration
@@ -385,6 +387,90 @@ def format_duration(seconds):
     secs = int(seconds % 60)
     return f"{mins}:{secs:02d}"
 
+def render_trim_ui(video_path, video_name, unique_key):
+    """Render trim UI for a specific video
+
+    Args:
+        video_path: Path object to the video file
+        video_name: Display name for the video
+        unique_key: Unique key for Streamlit widgets
+    """
+    st.markdown("---")
+
+    # Check if this video already has a trimmed version
+    video_path_str = str(video_path)
+    has_trimmed = video_path_str in st.session_state.trimmed_videos
+
+    with st.expander(f"✂️ Trim {video_name}", expanded=False):
+        st.markdown("Remove up to 5 seconds from the beginning or end of this video")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            trim_start = st.number_input(
+                "Trim from start (seconds)",
+                min_value=0,
+                max_value=5,
+                value=0,
+                step=1,
+                key=f"trim_start_{unique_key}",
+                help="Remove up to 5 seconds from the beginning"
+            )
+        with col2:
+            trim_end = st.number_input(
+                "Trim from end (seconds)",
+                min_value=0,
+                max_value=5,
+                value=0,
+                step=1,
+                key=f"trim_end_{unique_key}",
+                help="Remove up to 5 seconds from the end"
+            )
+
+        if trim_start > 0 or trim_end > 0:
+            if st.button("✂️ Apply Trim", type="primary", use_container_width=True, key=f"apply_trim_{unique_key}"):
+                with st.status("Trimming video...", expanded=True) as trim_status:
+                    st.write(f"Trimming {trim_start}s from start, {trim_end}s from end...")
+
+                    # Create trimmed output path
+                    trimmed_filename = f"{video_path.stem}_trimmed_{trim_start}s_{trim_end}s.mp4"
+                    trimmed_path = video_path.parent / trimmed_filename
+
+                    with st.spinner("Processing..."):
+                        success = trim_video(video_path, trimmed_path, trim_start, trim_end)
+
+                    if success and trimmed_path.exists():
+                        st.session_state.trimmed_videos[video_path_str] = trimmed_path
+                        trim_status.update(label="✓ Trim complete!", state="complete", expanded=False)
+                        st.success(f"✅ Trimmed video created: {trimmed_filename}")
+                        st.rerun()
+                    else:
+                        st.error("❌ Trim operation failed. Please try again.")
+                        trim_status.update(label="✗ Trim failed", state="error", expanded=False)
+        else:
+            st.info("💡 Set trim values above to enable trimming")
+
+    # Show trimmed video if it exists
+    if has_trimmed:
+        trimmed_path = st.session_state.trimmed_videos[video_path_str]
+        if trimmed_path.exists():
+            st.markdown(f"### ✂️ Trimmed: {video_name}")
+            trimmed_size = trimmed_path.stat().st_size
+
+            with open(trimmed_path, 'rb') as video_file:
+                st.video(video_file.read())
+            st.markdown(f"**{trimmed_path.name}** • {format_file_size(trimmed_size)}")
+
+            # Download trimmed video
+            with open(trimmed_path, 'rb') as f:
+                st.download_button(
+                    label=f"⬇️ Download Trimmed {video_name}",
+                    data=f,
+                    file_name=trimmed_path.name,
+                    mime='video/mp4',
+                    key=f"download_trimmed_{unique_key}",
+                    use_container_width=True
+                )
+
 def get_video_thumbnail(video_path, time_sec=5):
     """Generate thumbnail from video at specified time"""
     try:
@@ -412,6 +498,8 @@ if 'preview_files' not in st.session_state:
     st.session_state.preview_files = []
 if 'clip_config' not in st.session_state:
     st.session_state.clip_config = None
+if 'trimmed_videos' not in st.session_state:
+    st.session_state.trimmed_videos = {}  # Dict to track trimmed versions: {original_path: trimmed_path}
 
 # Header with logo
 # Load and encode logo
@@ -529,10 +617,12 @@ with tab2:
         with col1:
             # Determine available video modes based on uploaded videos
             max_videos = min(len(st.session_state.video_files), 4)
-            available_modes = list(range(2, max_videos + 1))
+            available_modes = list(range(2, max_videos + 1)) + ['multi']
 
             def format_video_mode(x):
-                if x == 2:
+                if x == 'multi':
+                    return "Multi-cut (random quick cuts)"
+                elif x == 2:
                     return f"{x}-video (50/50 split)"
                 elif x == 3:
                     return f"{x}-video (33/33/33 split)"
@@ -543,7 +633,7 @@ with tab2:
                 "Video Mode",
                 options=available_modes,
                 format_func=format_video_mode,
-                help="Choose how many videos to stack"
+                help="Choose how many videos to stack, or multi-cut for random quick cuts between videos"
             )
 
         with col2:
@@ -556,7 +646,14 @@ with tab2:
         st.markdown("---")
 
         # Video selection section (if user has more videos than selected mode)
-        if len(st.session_state.video_files) > video_mode:
+        # Skip selection if multi-cut mode (uses all videos)
+        if video_mode == 'multi':
+            # Multi-cut mode uses all uploaded videos
+            selected_video_indices = list(range(len(st.session_state.video_files)))
+            st.markdown(f"### Multi-Cut Mode")
+            st.markdown(f"All {len(st.session_state.video_files)} videos will be used with random quick cuts (3-8 seconds each)")
+            st.markdown("---")
+        elif len(st.session_state.video_files) > video_mode:
             st.markdown("### Video Selection")
             st.markdown(f"You have {len(st.session_state.video_files)} videos uploaded but selected {video_mode}-video mode. Choose which videos to use:")
 
@@ -605,7 +702,9 @@ with tab2:
             clip_crop_settings = []  # Store crop settings per clip
 
             # Create position labels based on video mode
-            if video_mode == 2:
+            if video_mode == 'multi':
+                position_labels = []  # Multi-cut doesn't need position labels
+            elif video_mode == 2:
                 position_labels = ["Top Video", "Bottom Video"]
             elif video_mode == 3:
                 position_labels = ["Top Video", "Middle Video", "Bottom Video"]
@@ -643,23 +742,27 @@ with tab2:
                     )
                     clip_titles.append(title if title.strip() else None)
 
-                    # Video Display Settings for this clip
-                    st.markdown("**Video Display Settings**")
-                    st.markdown("Configure how each video should be sized for this clip:")
+                    # Video Display Settings for this clip (skip for multi-cut mode)
+                    if video_mode != 'multi':
+                        st.markdown("**Video Display Settings**")
+                        st.markdown("Configure how each video should be sized for this clip:")
 
-                    current_clip_crop_settings = []
-                    for video_idx in range(video_mode):
-                        enable_letterbox = st.checkbox(
-                            f"Enable Letterbox for {position_labels[video_idx]}",
-                            value=False,
-                            key=f"clip_{i}_letterbox_{video_idx}",
-                            help=f"Check to fit entire video (letterbox). Uncheck for zoom & crop (default)."
-                        )
-                        # Invert the logic: checkbox checked = letterbox (False for crop_to_fill)
-                        # checkbox unchecked = zoom & crop (True for crop_to_fill)
-                        current_clip_crop_settings.append(not enable_letterbox)
+                        current_clip_crop_settings = []
+                        for video_idx in range(video_mode):
+                            enable_letterbox = st.checkbox(
+                                f"Enable Letterbox for {position_labels[video_idx]}",
+                                value=False,
+                                key=f"clip_{i}_letterbox_{video_idx}",
+                                help=f"Check to fit entire video (letterbox). Uncheck for zoom & crop (default)."
+                            )
+                            # Invert the logic: checkbox checked = letterbox (False for crop_to_fill)
+                            # checkbox unchecked = zoom & crop (True for crop_to_fill)
+                            current_clip_crop_settings.append(not enable_letterbox)
 
-                    clip_crop_settings.append(current_clip_crop_settings)
+                        clip_crop_settings.append(current_clip_crop_settings)
+                    else:
+                        # Multi-cut mode doesn't use crop settings
+                        clip_crop_settings.append([])
 
             st.markdown("---")
 
@@ -671,29 +774,33 @@ with tab2:
                 help="Create quick 5-second previews of each clip before processing full videos"
             )
         else:
-            # Full Video mode - simple video display settings
-            st.markdown("### Video Display Settings")
-            st.markdown("Configure how each video should be sized:")
+            # Full Video mode - simple video display settings (skip for multi-cut)
+            if video_mode != 'multi':
+                st.markdown("### Video Display Settings")
+                st.markdown("Configure how each video should be sized:")
 
-            # Create position labels based on video mode
-            if video_mode == 2:
-                position_labels = ["Top Video", "Bottom Video"]
-            elif video_mode == 3:
-                position_labels = ["Top Video", "Middle Video", "Bottom Video"]
-            else:  # 4 videos
-                position_labels = ["Top Video", "2nd Video", "3rd Video", "Bottom Video"]
+                # Create position labels based on video mode
+                if video_mode == 2:
+                    position_labels = ["Top Video", "Bottom Video"]
+                elif video_mode == 3:
+                    position_labels = ["Top Video", "Middle Video", "Bottom Video"]
+                else:  # 4 videos
+                    position_labels = ["Top Video", "2nd Video", "3rd Video", "Bottom Video"]
 
-            full_video_crop_settings = []
-            for video_idx in range(video_mode):
-                enable_letterbox = st.checkbox(
-                    f"Enable Letterbox for {position_labels[video_idx]}",
-                    value=False,
-                    key=f"full_video_letterbox_{video_idx}",
-                    help=f"Check to fit entire video (letterbox). Uncheck for zoom & crop (default)."
-                )
-                # Invert the logic: checkbox checked = letterbox (False for crop_to_fill)
-                # checkbox unchecked = zoom & crop (True for crop_to_fill)
-                full_video_crop_settings.append(not enable_letterbox)
+                full_video_crop_settings = []
+                for video_idx in range(video_mode):
+                    enable_letterbox = st.checkbox(
+                        f"Enable Letterbox for {position_labels[video_idx]}",
+                        value=False,
+                        key=f"full_video_letterbox_{video_idx}",
+                        help=f"Check to fit entire video (letterbox). Uncheck for zoom & crop (default)."
+                    )
+                    # Invert the logic: checkbox checked = letterbox (False for crop_to_fill)
+                    # checkbox unchecked = zoom & crop (True for crop_to_fill)
+                    full_video_crop_settings.append(not enable_letterbox)
+            else:
+                # Multi-cut mode doesn't use crop settings
+                full_video_crop_settings = []
 
         st.markdown("---")
 
@@ -788,18 +895,30 @@ with tab2:
                             st.write(f"📋 Title: '{current_clip_title}'")
 
                         with st.spinner("Processing..."):
-                            create_portrait_video(
-                                selected_videos,
-                                output_path_full,
-                                video_mode,
-                                preview_only=False,
-                                start_time=start_sec,
-                                duration=actual_duration,
-                                subtitle_path=subtitle_file,
-                                title_text=current_clip_title,
-                                progress_callback=None,
-                                crop_to_fill=clip_crop_settings[i]  # Use per-clip crop settings
-                            )
+                            # Use multi-cut function for multi mode, otherwise use standard stacking
+                            if video_mode == 'multi':
+                                create_multi_cut_video(
+                                    selected_videos,
+                                    output_path_full,
+                                    start_time=start_sec,
+                                    duration=actual_duration,
+                                    subtitle_path=subtitle_file,
+                                    title_text=current_clip_title,
+                                    progress_callback=None
+                                )
+                            else:
+                                create_portrait_video(
+                                    selected_videos,
+                                    output_path_full,
+                                    video_mode,
+                                    preview_only=False,
+                                    start_time=start_sec,
+                                    duration=actual_duration,
+                                    subtitle_path=subtitle_file,
+                                    title_text=current_clip_title,
+                                    progress_callback=None,
+                                    crop_to_fill=clip_crop_settings[i]  # Use per-clip crop settings
+                                )
 
                         if output_path_full.exists():
                             processing_time = time.time() - clip_start_time
@@ -832,6 +951,10 @@ with tab2:
                                 with open(output_path_full, 'rb') as video_file:
                                     st.video(video_file.read())
                                 st.markdown(f"**{output_path_full.name}** • {format_file_size(file_size)} • {format_duration(processing_time)}")
+
+                                # Add trim UI for this clip
+                                render_trim_ui(output_path_full, f"Clip {i+1}", f"clip_{i}_{is_preview_mode}")
+
                                 st.markdown("---")
 
                     progress_update = f"Generated {i+1}/{num_clips} {duration_label}s" if is_preview_mode else f"Processed {i+1}/{num_clips} clips"
@@ -879,7 +1002,10 @@ with tab2:
 
                 with st.status("Processing full video...", expanded=True) as status:
                     start_time = time.time()
-                    output_filename = f"portrait_full_{video_mode}video.mp4"
+                    if video_mode == 'multi':
+                        output_filename = f"portrait_full_multicut.mp4"
+                    else:
+                        output_filename = f"portrait_full_{video_mode}video.mp4"
                     output_path = output_dir / output_filename
 
                     st.write("🎬 Creating full portrait video...")
@@ -892,18 +1018,30 @@ with tab2:
                         subtitle_file = st.session_state.vtt_file
 
                     with st.spinner("Processing..."):
-                        create_portrait_video(
-                            selected_videos,
-                            output_path,
-                            video_mode,
-                            preview_only=False,
-                            start_time=0,
-                            duration=None,
-                            subtitle_path=subtitle_file,
-                            title_text=None,
-                            progress_callback=None,
-                            crop_to_fill=full_video_crop_settings
-                        )
+                        # Use multi-cut function for multi mode, otherwise use standard stacking
+                        if video_mode == 'multi':
+                            create_multi_cut_video(
+                                selected_videos,
+                                output_path,
+                                start_time=0,
+                                duration=None,
+                                subtitle_path=subtitle_file,
+                                title_text=None,
+                                progress_callback=None
+                            )
+                        else:
+                            create_portrait_video(
+                                selected_videos,
+                                output_path,
+                                video_mode,
+                                preview_only=False,
+                                start_time=0,
+                                duration=None,
+                                subtitle_path=subtitle_file,
+                                title_text=None,
+                                progress_callback=None,
+                                crop_to_fill=full_video_crop_settings
+                            )
 
                     if output_path.exists():
                         processing_time = time.time() - start_time
@@ -929,6 +1067,9 @@ with tab2:
                                 key=f"download_full",
                                 use_container_width=True
                             )
+
+                        # Add trim UI for full video
+                        render_trim_ui(output_path, "Full Video", "full_video")
 
 # Cleanup on session end
 def cleanup_temp_files():
