@@ -12,6 +12,35 @@ The primary way to use this project is through **Claude Code** with the built-in
 - Python 3.8+ with dependencies installed (`pip install -r requirements.txt`)
 - FFmpeg available on your PATH
 
+## Installation
+
+```bash
+git clone https://github.com/jasonhand/portrait_video_generator.git
+cd portrait_video_generator
+pip install -r requirements.txt
+```
+
+### File Layout
+
+```
+portrait_video_generator/
+├── pvg.py                        # Web interface (Streamlit GUI)
+├── create_clips_from_analysis.py # Automated clip creation from markdown analysis
+├── requirements.txt
+├── .streamlit/
+│   └── config.toml              # Upload size limits (2GB default)
+├── stacked_script/
+│   └── stack.py                 # Core video processing functions
+├── utils/
+│   └── burn_subs.py            # Standalone subtitle burning utility
+├── logos/                       # Brand assets — create locally, not tracked by git
+├── transcripts/                 # VTT files and clip-analysis markdown — not tracked
+├── source_video/                # Source MP4s for processing — not tracked
+└── output/                      # Generated portrait videos — not tracked
+```
+
+Place your logo at `logos/logo.png` to enable the watermark overlay.
+
 ### Step-by-Step
 
 **1. Add your source videos**
@@ -144,37 +173,6 @@ After generation, a **Generated Clips** table is appended automatically:
 |------|-------|-----------|----------|------|------|
 | 1    | ...   | ...       | ...      | ...  | ...  |
 ```
-
----
-
-## Installation
-
-```bash
-git clone https://github.com/jasonhand/portrait_video_generator.git
-cd portrait_video_generator
-pip install -r requirements.txt
-```
-
-### File Layout
-
-```
-portrait_video_generator/
-├── pvg.py                        # Web interface (Streamlit GUI)
-├── create_clips_from_analysis.py # Automated clip creation from markdown analysis
-├── requirements.txt
-├── .streamlit/
-│   └── config.toml              # Upload size limits (2GB default)
-├── stacked_script/
-│   └── stack.py                 # Core video processing functions
-├── utils/
-│   └── burn_subs.py            # Standalone subtitle burning utility
-├── logos/                       # Brand assets — create locally, not tracked by git
-├── transcripts/                 # VTT files and clip-analysis markdown — not tracked
-├── source_video/                # Source MP4s for processing — not tracked
-└── output/                      # Generated portrait videos — not tracked
-```
-
-Place your logo at `logos/logo.png` to enable the watermark overlay.
 
 ---
 
