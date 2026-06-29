@@ -9,6 +9,7 @@ Video Stacker is a Python script that converts 2 or 3 landscape videos to portra
 **Modes:**
 - **2-video mode**: 50/50 split with center-cropped videos filling entire screen (screen recording top, speaker bottom)
 - **3-video mode**: Three equal sections stacked vertically (top/middle/bottom)
+- **Multi-cut mode**: Dynamic quick cuts between multiple videos (2-4) with random zoom effects for engaging shorts
 
 ## Technology Stack
 
@@ -36,20 +37,20 @@ pip install moviepy pillow streamlit
 
 **Web Interface (Recommended for most users):**
 ```bash
-streamlit run streamlit_app.py
+streamlit run pvg.py
 ```
 Opens a browser-based GUI with drag-and-drop upload, visual selection, and real-time progress.
 
 **Command Line Interface (For automation/scripting):**
 ```bash
-# Interactive mode
-python stack.py
+# Interactive mode (legacy)
+python stacked_script/stack.py
 
-# With directory argument
-python stack.py -d /path/to/videos
+# Automated batch clip creation from markdown analysis
+python create_clips_from_analysis.py transcripts/episode_clip_suggestions.md varied
 
 # Help
-python stack.py -h
+python stacked_script/stack.py -h
 ```
 
 **Standalone Subtitle Burning:**
@@ -73,6 +74,7 @@ The script follows a modular design with clear separation of concerns:
 - `display_menu()` - Interactive UI for video selection
 - `get_user_selection()` - Handles user input validation (2 or 3 videos)
 - `create_portrait_video()` - Main video processing pipeline with subtitle support
+- `create_multi_cut_video()` - Creates portrait videos with dynamic quick cuts and random zoom effects
 - `create_layout_preview()` - Generates static image preview with caption styling
 - `ask_for_layout_preview()` - Prompts user for layout preview
 - `ask_for_preview()` - Prompts for 5-second video preview
@@ -108,7 +110,17 @@ The script follows a modular design with clear separation of concerns:
 14. **Summary**: Displays comprehensive processing information for all clips
 
 ### Key Features
-- **Flexible Modes**: 2-video (50/50) or 3-video (33/33/33) layouts
+- **Flexible Modes**:
+  - 2-video (50/50) or 3-video (33/33/33) stacked layouts
+  - Multi-cut mode with dynamic quick cuts and zoom effects
+- **Multi-Cut Mode Features**:
+  - Random cuts every 2.5-3.5 seconds between source videos
+  - **Dynamic speaker-aware cutting**: Real-time audio analysis to show the active speaker
+  - Random zoom effects on 50% of segments (1.05x to 1.15x zoom)
+  - Weighted video selection (95% Primary, 5% Secondary if labeled)
+  - Prevents more than 2 consecutive segments from same video
+  - Continuous audio mixing from all sources
+  - Creates engaging, dynamic content ideal for YouTube Shorts
 - **Optional Title Text**: Burn custom title text at the top of videos (max 50 characters)
   - National 2 Bold font, 80pt, white with black outline
   - Positioned at top center, 100px from top
@@ -117,7 +129,7 @@ The script follows a modular design with clear separation of concerns:
   - Automatic VTT subtitle extraction and burning
   - Custom styling: 120pt light purple (#ECDDFF) text with dark purple (#34008D) outline
   - Smart text wrapping to prevent overflow
-  - Positioned at 850px from bottom for optimal visibility
+  - Dynamic positioning: 400px from bottom for multi-cut/letterbox mode, 850px for 2-video mode
   - Static preview image shows caption styling before video generation
 - **Layout Preview**: Generate a static image preview showing exact cropping, positioning, and caption styling before processing
 - **Logo Watermark**: Automatic logo overlay in upper-left corner
@@ -175,30 +187,35 @@ Current dependencies:
 ## File Structure
 ```
 portrait_video_generator/
-├── streamlit_app.py      # Web interface (Streamlit GUI)
-├── stack.py              # Main video processing script (CLI)
-├── README.md             # Project documentation
-├── CLAUDE.md             # This file - Development guidance
-├── STREAMLIT_GUIDE.md    # Streamlit usage guide
-├── requirements.txt      # Python dependencies
-├── .streamlit/           # Streamlit configuration
-│   └── config.toml       # Upload size limits (2GB default) and settings
-├── utils/                # Utility scripts
-│   └── burn_subs.py      # Standalone subtitle burning utility
-└── logos/
-    └── dd_podcast.png    # Logo watermark image
+├── pvg.py                        # Web interface (Streamlit GUI)
+├── create_clips_from_analysis.py # Automated clip creation from markdown analysis
+├── README.md                     # Project documentation
+├── CLAUDE.md                     # This file - Development guidance
+├── requirements.txt              # Python dependencies
+├── .streamlit/                   # Streamlit configuration
+│   └── config.toml              # Upload size limits (2GB default) and settings
+├── stacked_script/              # Core video processing engine
+│   └── stack.py                 # Main video processing functions
+├── utils/                       # Utility scripts
+│   └── burn_subs.py            # Standalone subtitle burning utility
+├── logos/                       # Brand assets (gitignored)
+│   └── logo.png                 # Logo watermark image
+├── transcripts/                 # VTT subtitle files (gitignored)
+├── source_video/                # Source video files for processing (gitignored)
+└── output/                      # Generated portrait videos (gitignored)
 ```
 
 ## Streamlit Web Interface
 
 ### Overview
-`streamlit_app.py` provides a browser-based GUI that wraps the existing `stack.py` functions without modifying the core logic. This allows users to choose between web interface or CLI based on their needs.
+`pvg.py` (Portrait Video Generator) provides a modern browser-based GUI that wraps the core `stack.py` functions without modifying the core logic. This allows users to choose between web interface or CLI based on their needs.
 
 ### Architecture
 - **No modification to stack.py**: Imports functions directly, preserving CLI functionality
 - **Temporary file handling**: Uses `tempfile.mkdtemp()` for uploaded files
 - **Session state**: Maintains uploaded videos and outputs across reruns
 - **Real-time feedback**: Progress bars and status updates during processing
+- **Modern design**: Custom purple color scheme (#34008D and #ECDDFF) matching caption styling
 
 ### Key Features
 - **Drag-and-drop upload**: Multi-file upload for MP4 videos and VTT subtitles
@@ -255,6 +272,42 @@ The 2-video mode uses intelligent center cropping to fill the entire 1080x1920 s
 3. If height < allocated space: resize to fill height, then crop horizontally from center
 4. Result: Both videos fill exactly 50% of screen with centered content
 
+### Dynamic Speaker Detection for Multi-Cut Videos
+The speaker detection system uses real-time audio analysis to automatically show the active speaker during multi-cut videos (stack.py lines 1029-1144):
+
+**How It Works:**
+1. **Audio Analysis Function** (`get_audio_level()` - line 1029):
+   - Takes a video clip and time offset as input
+   - Extracts 0.5-second audio segment at that time
+   - Calculates RMS (Root Mean Square) audio level
+   - Returns float value representing audio intensity
+   - Returns 0.0 if no audio or if time exceeds clip duration
+
+2. **Dynamic Segment Analysis** (lines 1091-1118):
+   - For each 2.5-3.5s segment, samples audio every 0.5s throughout the segment duration
+   - Collects audio levels from all webcam videos at multiple points within the segment
+   - Calculates average audio level for each webcam across all samples
+   - Identifies speakers with audio above threshold (0.02 RMS)
+   - Sorts speakers by average audio level (loudest first)
+
+3. **Speaker Selection Logic** (lines 1120-1144):
+   - Prioritizes the webcam with highest average audio during that segment
+   - Always includes screen video as an option (shows all 3 videos in letterbox)
+   - Falls back to screen video if no speakers are active
+   - Prevents more than 2 consecutive segments from same video for variety
+   - Respects Primary/Secondary video weighting if labeled
+
+**Key Improvements Over Previous Static Approach:**
+- **Old**: Pre-analyzed entire video once, checked audio only at segment start
+- **New**: Analyzes audio dynamically throughout each segment's full duration
+- **Result**: Correctly handles back-and-forth conversations where speaker changes mid-segment
+
+**Debug Output:**
+Shows speaker levels and dominant speaker selection for each segment:
+```
+Segment 1: 0.0s-2.8s (2.8s) - Video 2 (WEBCAM) [speakers: Video 2: 0.0245, Video 3: 0.0098] ← DOMINANT
+```
+
 ### Caption System Architecture
 
 **Why Manual Text Wrapping?**
@@ -269,9 +322,10 @@ The caption system uses manual text wrapping because ASS format's automatic wrap
   - RGB: (52, 0, 141)
   - BGR for ASS: &H8D0034
 - **Position**: Dynamic based on video mode
+  - **Multi-cut mode (letterbox layout)**: 400px from bottom (MarginV=400) - positioned in bottom third of video, well below center
   - **2-video mode**: 850px from bottom (MarginV=850, which is 1070px from top) - captions in lower half
   - **3-video mode**: 750px from bottom (MarginV=750, which is 1170px from top) - positioned lower in bottom section
-  - Optimized positioning ensures captions don't overlap with key video content
+  - Optimized positioning ensures captions don't overlap with key video content while remaining visible
 - **Text Wrapping**: Manual at ~22 characters per line
 - **Padding**: 80px left and right margins
 - **Alignment**: Center-aligned (Alignment=2)
@@ -364,7 +418,7 @@ def wrap_subtitle_text(text, max_chars_per_line=22):
 ### Logo Positioning
 - Size: 1/3 of top section height (maintains aspect ratio)
 - Position: (2px, 2px) from top-left corner
-- File: `logos/dd_podcast.png` (if present)
+- File: `logos/logo.png` (if present)
 - Applied to all videos in composite
 
 ### Clip Mode Processing
@@ -395,7 +449,7 @@ Common issues and solutions:
    - Check that font size is 120pt and margins are 80px (left/right)
 6. **Invalid video files**: Ensure all files are valid MP4 format
 7. **Insufficient disk space**: Check available storage before processing
-8. **Logo not appearing**: Ensure logo file exists at `logos/dd_podcast.png`
+8. **Logo not appearing**: Ensure logo file exists at `logos/logo.png`
 
 ## Code Quality Guidelines
 
@@ -412,6 +466,29 @@ When modifying this codebase:
 
 ## Recent Changes History
 
+- **Dynamic speaker-aware cutting**: Improved speaker detection for multi-cut videos (stack.py lines 1091-1144)
+  - Replaced static pre-analysis with dynamic real-time audio analysis
+  - Samples audio every 0.5s throughout each segment's duration (not just at start)
+  - Calculates average RMS audio level for each webcam during the segment
+  - Prioritizes the loudest/most active speaker automatically
+  - Handles back-and-forth conversations correctly by tracking speaker changes in real-time
+  - Adjusted audio threshold from 0.01 to 0.02 RMS to reduce false positives
+  - Shows audio levels and dominant speaker in debug output
+- **Caption position adjustment**: Moved captions to 400px from bottom (stack.py line 1526)
+  - Positions captions in bottom third of video, well below center
+  - Optimized for letterbox layout in multi-cut mode (3-section layout)
+  - Ensures captions are clearly separated from center content and positioned near bottom
+- **VTT-clip-finder agent style update**: Changed default tone to be less clickbaity and more straightforward (.claude/agents/vtt-clip-finder.md lines 76-90)
+  - Titles now use descriptive, factual language instead of sensational phrases
+  - Removed clickbait patterns like "Secret Weapon", "Nobody's Talking About", "Just Got Exposed"
+  - Descriptions focus on technical content and what's demonstrated, not hype or rhetorical hooks
+  - Maintains professional, educational tone rather than promotional style
+  - Applied to all future YouTube Shorts generation
+- **Random zoom effects in multi-cut mode**: Added dynamic zoom feature to multi-cut videos (stack.py lines 1073-1189)
+  - 50% chance of zoom per segment (1.05x to 1.15x zoom)
+  - Creates more engaging and natural-looking transitions between cuts
+  - Zoom applied via resize and center-crop to maintain 1080x1920 portrait format
+  - Audio preserved through zoom transformations
 - **Optional title text feature**: Added ability to burn custom title text at top of videos (max 50 characters)
   - Uses National 2 Bold font, 80pt, white with black outline
   - Positioned at top center, 100px from top

@@ -387,6 +387,58 @@ def format_duration(seconds):
     secs = int(seconds % 60)
     return f"{mins}:{secs:02d}"
 
+def parse_time_to_seconds(time_str):
+    """Parse time string (MM:SS or HH:MM:SS) to seconds
+
+    Args:
+        time_str: Time string in format MM:SS or HH:MM:SS
+
+    Returns:
+        float: Time in seconds, or None if invalid format
+    """
+    try:
+        time_str = time_str.strip()
+        parts = time_str.split(':')
+
+        if len(parts) == 2:
+            # MM:SS format
+            mins, secs = parts
+            return int(mins) * 60 + float(secs)
+        elif len(parts) == 3:
+            # HH:MM:SS format
+            hours, mins, secs = parts
+            return int(hours) * 3600 + int(mins) * 60 + float(secs)
+        else:
+            return None
+    except (ValueError, AttributeError):
+        return None
+
+def calculate_duration(start_time_str, stop_time_str):
+    """Calculate duration between start and stop times
+
+    Args:
+        start_time_str: Start time string (MM:SS or HH:MM:SS)
+        stop_time_str: Stop time string (MM:SS or HH:MM:SS)
+
+    Returns:
+        float: Duration in seconds, or None if invalid
+    """
+    start_seconds = parse_time_to_seconds(start_time_str)
+    stop_seconds = parse_time_to_seconds(stop_time_str)
+
+    if start_seconds is None or stop_seconds is None:
+        return None
+
+    duration = stop_seconds - start_seconds
+
+    # Validate duration is positive and not exceeding 3 minutes (180 seconds)
+    if duration <= 0:
+        return None
+    if duration > 180:
+        return None
+
+    return duration
+
 def render_trim_ui(video_path, video_name, unique_key):
     """Render trim UI for a specific video
 
@@ -500,10 +552,16 @@ if 'clip_config' not in st.session_state:
     st.session_state.clip_config = None
 if 'trimmed_videos' not in st.session_state:
     st.session_state.trimmed_videos = {}  # Dict to track trimmed versions: {original_path: trimmed_path}
+if 'persistent_output_dir' not in st.session_state:
+    # Create a persistent output directory that survives page refreshes
+    st.session_state.persistent_output_dir = Path(tempfile.gettempdir()) / f"pvg_outputs_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    st.session_state.persistent_output_dir.mkdir(parents=True, exist_ok=True)
+if 'generated_videos' not in st.session_state:
+    st.session_state.generated_videos = {}  # Dict to store {filename: {'path': Path, 'size': int, 'time': float, 'duration': float}}
 
 # Header with logo
 # Load and encode logo
-logo_path = Path("logos/dd_podcast.png")
+logo_path = Path("logos/logo.png")
 if logo_path.exists():
     with open(logo_path, "rb") as f:
         logo_data = base64.b64encode(f.read()).decode()
@@ -547,8 +605,8 @@ with tab1:
         vtt_files = [f for f in uploaded_files if f.name.lower().endswith('.vtt')]
 
         # Validate video count
-        if len(video_files) < 2:
-            st.warning("⚠️ Please upload at least 2 videos")
+        if len(video_files) < 1:
+            st.warning("⚠️ Please upload at least 1 video")
         elif len(video_files) > 4:
             st.warning("⚠️ Maximum 4 videos allowed")
         else:
@@ -596,7 +654,7 @@ with tab1:
                 st.markdown(f'<div class="success-box">✅ <strong>Subtitle file: {st.session_state.vtt_file.name}</strong></div>', unsafe_allow_html=True)
 
     # Continue to Settings Button
-    if st.session_state.video_files and len(st.session_state.video_files) >= 2:
+    if st.session_state.video_files and len(st.session_state.video_files) >= 1:
         st.markdown("---")
         st.markdown("""
         <div class="success-box">
@@ -607,9 +665,18 @@ with tab1:
 
 # TAB 2: Settings & Processing
 with tab2:
-    if not st.session_state.video_files or len(st.session_state.video_files) < 2:
-        st.markdown('<div class="info-box">ℹ️ Please upload at least 2 videos in the Upload tab first</div>', unsafe_allow_html=True)
+    if not st.session_state.video_files or len(st.session_state.video_files) < 1:
+        st.markdown('<div class="info-box">ℹ️ Please upload at least 1 video in the Upload tab first</div>', unsafe_allow_html=True)
     else:
+        # Show persistent storage info if videos have been generated
+        if st.session_state.generated_videos:
+            st.markdown(f'''
+            <div class="success-box">
+                ✅ <strong>{len(st.session_state.generated_videos)} video(s) saved and ready</strong><br>
+                Your generated videos are preserved in memory and available for download below.
+            </div>
+            ''', unsafe_allow_html=True)
+
         st.markdown("### Processing Configuration")
 
         # Video mode selection
@@ -617,11 +684,13 @@ with tab2:
         with col1:
             # Determine available video modes based on uploaded videos
             max_videos = min(len(st.session_state.video_files), 4)
-            available_modes = list(range(2, max_videos + 1)) + ['multi']
+            available_modes = list(range(1, max_videos + 1)) + ['multi']
 
             def format_video_mode(x):
                 if x == 'multi':
-                    return "Multi-cut (random quick cuts)"
+                    return "Multi-cut (random quick cuts + zoom effects)"
+                elif x == 1:
+                    return "1-video (full screen)"
                 elif x == 2:
                     return f"{x}-video (50/50 split)"
                 elif x == 3:
@@ -633,7 +702,7 @@ with tab2:
                 "Video Mode",
                 options=available_modes,
                 format_func=format_video_mode,
-                help="Choose how many videos to stack, or multi-cut for random quick cuts between videos"
+                help="Choose how many videos to stack, or multi-cut for dynamic random cuts (2.5-3.5s) with random zoom effects (50% chance, 1.05x-1.15x zoom)"
             )
 
         with col2:
@@ -651,7 +720,7 @@ with tab2:
             # Multi-cut mode uses all uploaded videos
             selected_video_indices = list(range(len(st.session_state.video_files)))
             st.markdown(f"### Multi-Cut Mode")
-            st.markdown(f"All {len(st.session_state.video_files)} videos will be used with random quick cuts (3-8 seconds each)")
+            st.markdown(f"All {len(st.session_state.video_files)} videos will be used with random quick cuts (2.5-3.5s each) and dynamic zoom effects (50% chance per segment)")
             st.markdown("---")
         elif len(st.session_state.video_files) > video_mode:
             st.markdown("### Video Selection")
@@ -660,7 +729,9 @@ with tab2:
             selected_video_indices = []
 
             # Create position labels based on video mode
-            if video_mode == 2:
+            if video_mode == 1:
+                position_labels = ["Video"]
+            elif video_mode == 2:
                 position_labels = ["Top Position", "Bottom Position"]
             elif video_mode == 3:
                 position_labels = ["Top Position", "Middle Position", "Bottom Position"]
@@ -691,6 +762,21 @@ with tab2:
 
         st.markdown("---")
 
+        # Caption Settings (only show if VTT file is uploaded)
+        burn_captions = False
+        if st.session_state.vtt_file:
+            st.markdown("### Caption Settings")
+            burn_captions = st.checkbox(
+                "🔥 Burn captions into video",
+                value=False,
+                help="Check this to permanently embed subtitles into the video. Uncheck to generate videos without captions."
+            )
+            if burn_captions:
+                st.markdown('<div class="info-box">✓ Captions will be burned into the video with custom styling (120pt light purple text)</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="info-box">ℹ️ Videos will be generated without captions</div>', unsafe_allow_html=True)
+            st.markdown("---")
+
         # Settings based on mode
         if processing_mode == "Clips":
             st.markdown("### Clip Configuration")
@@ -704,6 +790,8 @@ with tab2:
             # Create position labels based on video mode
             if video_mode == 'multi':
                 position_labels = []  # Multi-cut doesn't need position labels
+            elif video_mode == 1:
+                position_labels = ["Video"]
             elif video_mode == 2:
                 position_labels = ["Top Video", "Bottom Video"]
             elif video_mode == 3:
@@ -713,24 +801,33 @@ with tab2:
 
             for i in range(num_clips):
                 with st.expander(f"📹 Clip {i+1}", expanded=True):
-                    col1, col2 = st.columns([1.5, 2])
+                    col1, col2 = st.columns([1, 1])
                     with col1:
-                        timestamp = st.text_input(
+                        start_time = st.text_input(
                             "Start Time",
                             value=f"{i*2}:00",
-                            key=f"clip_timestamp_{i}",
-                            placeholder="MM:SS"
+                            key=f"clip_start_{i}",
+                            placeholder="MM:SS or HH:MM:SS",
+                            help="Enter start time (e.g., 1:30 or 0:01:30)"
                         )
-                        clip_timestamps.append(timestamp)
+                        clip_timestamps.append(start_time)
 
                     with col2:
-                        duration = st.selectbox(
-                            "Duration",
-                            options=[15, 30, 45, 60],
-                            index=1,
-                            format_func=lambda x: f"{x}s",
-                            key=f"clip_duration_{i}"
+                        stop_time = st.text_input(
+                            "Stop Time",
+                            value=f"{i*2 + 1}:00",
+                            key=f"clip_stop_{i}",
+                            placeholder="MM:SS or HH:MM:SS",
+                            help="Enter stop time (max 3 minutes from start)"
                         )
+
+                    # Calculate duration and display validation
+                    duration = calculate_duration(start_time, stop_time)
+                    if duration is None:
+                        st.error("⚠️ Invalid time range. Please check your start/stop times. Duration must be positive and not exceed 3 minutes.")
+                        clip_durations.append(None)
+                    else:
+                        st.success(f"✓ Clip duration: {format_duration(duration)} ({duration:.1f}s)")
                         clip_durations.append(duration)
 
                     title = st.text_input(
@@ -780,7 +877,9 @@ with tab2:
                 st.markdown("Configure how each video should be sized:")
 
                 # Create position labels based on video mode
-                if video_mode == 2:
+                if video_mode == 1:
+                    position_labels = ["Video"]
+                elif video_mode == 2:
                     position_labels = ["Top Video", "Bottom Video"]
                 elif video_mode == 3:
                     position_labels = ["Top Video", "Middle Video", "Bottom Video"]
@@ -813,23 +912,32 @@ with tab2:
         if st.button(button_label, type="primary", use_container_width=True):
             st.markdown("### 🎬 Processing Videos")
 
-            # Create output directory
-            temp_dir = Path(st.session_state.temp_dir)
-            output_dir = temp_dir / "output"
+            # Use persistent output directory instead of temp directory
+            output_dir = st.session_state.persistent_output_dir
             output_dir.mkdir(exist_ok=True)
 
             # Select videos based on user selection or default order
             selected_videos = [st.session_state.video_files[idx] for idx in selected_video_indices]
 
-            # Parse timestamp helper
+            # Parse timestamp helper (uses the parse_time_to_seconds function)
             def parse_timestamp(ts):
-                if ':' in ts:
-                    parts = ts.split(':')
-                    return int(parts[0]) * 60 + int(parts[1])
-                return int(ts)
+                seconds = parse_time_to_seconds(ts)
+                if seconds is None:
+                    # Fallback to simple integer if parse fails
+                    try:
+                        return int(ts)
+                    except ValueError:
+                        return 0
+                return seconds
 
             # Handle clips mode
             if processing_mode == "Clips":
+                # Validate all clip durations before processing
+                invalid_clips = [i+1 for i, duration in enumerate(clip_durations) if duration is None]
+                if invalid_clips:
+                    st.error(f"❌ Cannot generate clips. Please fix the time ranges for clip(s): {', '.join(map(str, invalid_clips))}")
+                    st.stop()
+
                 # Determine if we're in preview mode
                 is_preview_mode = generate_preview
                 duration_label = "preview" if is_preview_mode else "clip"
@@ -865,15 +973,15 @@ with tab2:
                         clip_start_time = time.time()
 
                         if is_preview_mode:
-                            output_filename = f"preview{i+1}_{current_clip_duration}s.mp4"
+                            output_filename = f"preview{i+1}_{int(current_clip_duration)}s.mp4"
                         else:
-                            output_filename = f"clip{i+1}_{current_clip_duration}s.mp4"
+                            output_filename = f"clip{i+1}_{int(current_clip_duration)}s.mp4"
 
                         output_path_full = output_dir / output_filename
 
-                        # Get subtitles if available
+                        # Get subtitles if available and burn_captions is enabled
                         subtitle_file = None
-                        if st.session_state.vtt_file:
+                        if st.session_state.vtt_file and burn_captions:
                             st.write("📝 Processing subtitles...")
                             from stacked_script.stack import get_existing_subtitles
                             import shutil as sh
@@ -885,6 +993,8 @@ with tab2:
                                 sh.copy(subtitle_file, subtitle_file_in_output)
                                 subtitle_file = subtitle_file_in_output
                                 st.write("✓ Subtitles ready")
+                        elif st.session_state.vtt_file and not burn_captions:
+                            st.write("ℹ️ Skipping captions (burn captions disabled)")
 
                         if is_preview_mode:
                             st.write(f"🔍 Generating 5-second preview from {clip_timestamps[i]} (full clip: {current_clip_duration}s)...")
@@ -932,6 +1042,10 @@ with tab2:
                                 'duration': actual_duration,
                                 'full_duration': current_clip_duration
                             }
+
+                            # Store in persistent generated_videos dict
+                            video_key = f"{output_path_full.name}_{datetime.now().timestamp()}"
+                            st.session_state.generated_videos[video_key] = file_info
 
                             if is_preview_mode:
                                 st.session_state.preview_files.append(file_info)
@@ -1010,12 +1124,14 @@ with tab2:
 
                     st.write("🎬 Creating full portrait video...")
 
-                    # Get subtitles if available
+                    # Get subtitles if available and burn_captions is enabled
                     subtitle_file = None
-                    if st.session_state.vtt_file:
+                    if st.session_state.vtt_file and burn_captions:
                         st.write("📝 Processing subtitles...")
                         st.write("✓ Subtitles ready")
                         subtitle_file = st.session_state.vtt_file
+                    elif st.session_state.vtt_file and not burn_captions:
+                        st.write("ℹ️ Skipping captions (burn captions disabled)")
 
                     with st.spinner("Processing..."):
                         # Use multi-cut function for multi mode, otherwise use standard stacking
@@ -1047,6 +1163,16 @@ with tab2:
                         processing_time = time.time() - start_time
                         file_size = output_path.stat().st_size
 
+                        # Store in persistent generated_videos dict
+                        video_key = f"{output_path.name}_{datetime.now().timestamp()}"
+                        st.session_state.generated_videos[video_key] = {
+                            'path': output_path,
+                            'name': output_path.name,
+                            'size': file_size,
+                            'time': processing_time,
+                            'duration': None
+                        }
+
                         st.write(f"✓ Complete!")
                         status.update(label="Full video complete!", state="complete", expanded=False)
 
@@ -1070,6 +1196,55 @@ with tab2:
 
                         # Add trim UI for full video
                         render_trim_ui(output_path, "Full Video", "full_video")
+
+        # Always show generated videos section at the bottom if any exist
+        if st.session_state.generated_videos:
+            st.markdown("---")
+            st.markdown("## 📦 All Generated Videos")
+            st.markdown(f"**{len(st.session_state.generated_videos)} video(s) generated in this session**")
+            st.markdown("*Videos remain available until you close this browser tab*")
+
+            # Display all generated videos with download buttons
+            for video_key, video_info in st.session_state.generated_videos.items():
+                video_path = video_info['path']
+
+                # Check if file still exists
+                if video_path.exists():
+                    st.markdown("---")
+                    col1, col2 = st.columns([3, 1])
+
+                    with col1:
+                        st.markdown(f"### 🎬 {video_info['name']}")
+                        st.markdown(f"**Size:** {format_file_size(video_info['size'])} • **Processing Time:** {format_duration(video_info['time'])}")
+
+                        # Show video preview
+                        with open(video_path, 'rb') as video_file:
+                            st.video(video_file.read())
+
+                    with col2:
+                        # Download button
+                        with open(video_path, 'rb') as f:
+                            st.download_button(
+                                label=f"⬇️ Download",
+                                data=f,
+                                file_name=video_info['name'],
+                                mime='video/mp4',
+                                key=f"persistent_download_{video_key}",
+                                use_container_width=True
+                            )
+
+                        # Delete button
+                        if st.button(f"🗑️ Remove", key=f"delete_{video_key}", use_container_width=True):
+                            try:
+                                video_path.unlink()
+                                del st.session_state.generated_videos[video_key]
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Could not delete file: {e}")
+                else:
+                    # File no longer exists, remove from session state
+                    del st.session_state.generated_videos[video_key]
+                    st.rerun()
 
 # Cleanup on session end
 def cleanup_temp_files():

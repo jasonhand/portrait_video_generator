@@ -88,7 +88,7 @@ def wrap_subtitle_text(text, max_chars_per_line=22):
 
     return '\\N'.join(lines)
 
-def convert_srt_to_ass(srt_path, ass_path, margin_vertical=850):
+def convert_srt_to_ass(srt_path, ass_path, margin_vertical=550):
     """Convert SRT to ASS format with custom vertical positioning"""
     try:
         subtitles = parse_srt_file(srt_path)
@@ -172,17 +172,13 @@ def burn_subtitles(video_path, subtitle_path, output_path=None, video_mode=2):
     # Calculate margin based on video mode
     # 2-video mode: 850px from bottom (captions in lower half)
     # 3-video mode: 400px from bottom (lower in bottom section)
-    # 4-video mode: 300px from bottom (lower in bottom section)
-    #   - 2-video: Each section is 960px tall (1920 / 2)
-    #   - 3-video: Each section is 640px tall (1920 / 3)
-    #   - 4-video: Each section is 480px tall (1920 / 4)
-    if video_mode == 2:
-        margin_vertical = 850
-    elif video_mode == 3:
-        margin_vertical = 400
-    else:  # 4 videos
-        margin_vertical = 300
-    print(f"Caption position: {margin_vertical}px from bottom")
+    # Position captions at absolute center of video (960px from bottom = middle of 1920px screen)
+    # This works well for all video modes:
+    #   - 2-video: Each section is 960px tall (1920 / 2) - captions at dividing line
+    #   - 3-video: Each section is 640px tall (1920 / 3) - captions in center
+    #   - 4-video: Each section is 480px tall (1920 / 4) - captions in center
+    margin_vertical = 550
+    print(f"Caption position: {margin_vertical}px from bottom (lower third)")
 
     # Convert SRT to ASS with positioning
     ass_path = subtitle_path.parent / f"{subtitle_path.stem}_temp.ass"

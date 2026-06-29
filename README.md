@@ -2,217 +2,286 @@
 
 Transform landscape videos into portrait format content for social media platforms like YouTube Shorts, TikTok, and Instagram Reels. Stack 2-4 video sources vertically with professional styling, captions, and custom branding.
 
-## ✨ Features
+## Recommended Workflow: Claude Code + VTT Clip Finder
 
-### 🎬 Flexible Video Layouts
-- **2-video mode**: 50/50 split - perfect for screen recording + speaker view
-- **3-video mode**: Three equal sections stacked vertically
-- **4-video mode**: Four equal sections - ideal for multi-camera setups
-- **Per-video display settings**: Choose zoom & crop or letterbox independently for each video source
-- **Smart resizing**: Maintains aspect ratios with intelligent center cropping
-
-### 📝 Advanced Caption System
-- **Automatic VTT subtitle extraction and burning**
-- **Custom styling**: 120pt light purple (#ECDDFF) text with dark purple (#34008D) outline
-- **Smart text wrapping** to prevent overflow
-- **Optimal positioning**: 850px from bottom for maximum visibility
-- **Preview captions** in layout preview before processing
-
-### 🎨 Professional Branding
-- **Custom watermark overlay** in upper-left corner
-- **Optional burned-in titles** for each clip
-- **Customizable brand colors** throughout the interface
-- **Layout preview generator** to verify styling before processing
-
-### 🎯 Multiple Output Modes
-- **Full video generation**: Process entire videos with automatic duration sync
-- **Clip mode**: Create 1-3 clips with customizable duration (30/45/60 seconds)
-- **Video preview**: Generate 5-second previews at custom timestamps
-- **Batch processing**: Create multiple clips in a single session
-
-### 🚀 Modern Web Interface
-- **Drag-and-drop video upload** (supports files up to 2GB)
-- **Visual thumbnail selection** for easy video identification
-- **Real-time progress indicators** during processing
-- **Inline video preview** with size-optimized display
-- **One-click download** for all generated content
-
-## 🚀 Quick Start
+The primary way to use this project is through **Claude Code** with the built-in `vtt-clip-finder` agent. The agent reads a VTT transcript, identifies the best moments for YouTube Shorts, and writes a structured markdown file that drives automated clip generation — no manual timestamp hunting required.
 
 ### Prerequisites
-- **Python 3.8+** ([download here](https://www.python.org/downloads/))
-- **Git** (optional, for cloning the repository)
 
-### Installation
+- [Claude Code](https://claude.ai/code) installed and authenticated
+- Python 3.8+ with dependencies installed (`pip install -r requirements.txt`)
+- FFmpeg available on your PATH
 
-1. **Clone or download this repository**:
-   ```bash
-   git clone https://github.com/yourusername/portrait_video_generator.git
-   cd portrait_video_generator
-   ```
+### Step-by-Step
 
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+**1. Add your source videos**
 
-   This installs:
-   - `moviepy` - Video processing engine
-   - `pillow` - Image generation for previews
-   - `streamlit` - Modern web interface
-   - `FFmpeg` - Automatically installed with MoviePy for subtitle burning
+Copy your MP4 files into the `source_video/` directory:
 
-### Launch the Web Interface
+```bash
+mkdir -p source_video
+cp /path/to/your/recordings/*.mp4 source_video/
+```
+
+The tool works best with 2–3 video sources recorded simultaneously — for example, a screen recording and one or two webcam feeds. Multi-cut mode analyzes audio levels automatically to determine which speaker is active at any moment.
+
+**Naming your files:** If all your source videos share a common word or phrase, include that same phrase in your VTT filename and the script will match them automatically. For example, videos named `interview_camera.mp4` and `interview_screen.mp4` will be picked up when your VTT is named `interview.vtt`. If no match is found, the script falls back to using all MP4s in `source_video/`, so generic filenames work fine too.
+
+**2. Add your VTT transcript**
+
+Copy your VTT subtitle file into the `transcripts/` directory:
+
+```bash
+mkdir -p transcripts
+cp /path/to/your/subtitles.vtt transcripts/
+```
+
+Your VTT file should cover the full duration of the recording and use standard timestamp format (`HH:MM:SS.mmm --> HH:MM:SS.mmm`). Most recording platforms (StreamYard, Riverside, Descript, YouTube auto-captions) can export VTT directly.
+
+**3. Open Claude Code in this project directory**
+
+```bash
+cd portrait_video_generator
+claude
+```
+
+**4. Invoke the vtt-clip-finder agent**
+
+In the Claude Code prompt, type:
+
+```
+@vtt-clip-finder analyze transcripts/Episode74.vtt
+```
+
+Or ask naturally:
+
+```
+Use the vtt-clip-finder agent to analyze transcripts/Episode74.vtt and generate YouTube Shorts clips
+```
+
+The agent will:
+- Read the full VTT transcript
+- Identify the 5 best segments (30s–2:59 each) with strong opening hooks
+- Write clip suggestions with titles, descriptions, timestamps, and hashtags to `transcripts/Episode74_clip_suggestions.md`
+
+**5. Review the clip suggestions**
+
+Open `transcripts/Episode74_clip_suggestions.md` and review the proposed clips. Edit any titles, timestamps, or descriptions before generating video.
+
+**6. Generate all clips**
+
+Ask Claude Code to start generation:
+
+```
+Generate all clips for Episode 74
+```
+
+Or run directly from the terminal:
+
+```bash
+python create_clips_from_analysis.py transcripts/Episode74_clip_suggestions.md varied
+```
+
+Claude Code monitors progress and updates the markdown file with a **Generated Clips** table when all clips are complete.
+
+**7. Find your output files**
+
+Finished clips are saved to `output/<name>/` where `<name>` is derived from your markdown filename. For example, if you ran the agent on `transcripts/interview.vtt`, look in:
+
+```
+output/interview/
+  interview_clip1_multi-cut.mp4
+  interview_clip2_multi-cut.mp4
+  ...
+```
+
+**8. Review and trim**
+
+Play the clips in `output/Episode74/`. If you need to trim the start or end of any clip, ask Claude Code:
+
+```
+Cut the first second from Episode74_clip1_multi-cut.mp4
+```
+
+---
+
+### What the vtt-clip-finder Agent Does
+
+The agent is configured specifically for this project and applies the following rules automatically:
+
+- **Clip length**: 30 seconds minimum, 2:59 maximum
+- **No overlap**: clips never share timestamp ranges
+- **Hook-first**: opening 5 seconds must be strong enough to stop a scroll
+- **Tone**: descriptive and factual — no clickbait phrasing
+- **Output**: saves directly to `transcripts/<EpisodeName>_clip_suggestions.md` in the format `create_clips_from_analysis.py` expects
+
+### Clip Suggestions File Format
+
+The generated markdown drives video creation. Each clip section looks like:
+
+```markdown
+## CLIP #1: Title Here
+
+**Timestamp**: 00:07:47.211 → 00:09:18.763 (Duration: 92s / 1:32)
+**Why it works**: ...
+
+**Title:**
+YouTube title here
+
+**Description:**
+Three-paragraph YouTube description...
+
+**Hashtags:**
+#Tag1 #Tag2 ...
+```
+
+After generation, a **Generated Clips** table is appended automatically:
+
+```markdown
+## Generated Clips
+
+| Clip | Title | Timestamp | Duration | File | Size |
+|------|-------|-----------|----------|------|------|
+| 1    | ...   | ...       | ...      | ...  | ...  |
+```
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/jasonhand/portrait_video_generator.git
+cd portrait_video_generator
+pip install -r requirements.txt
+```
+
+### File Layout
+
+```
+portrait_video_generator/
+├── pvg.py                        # Web interface (Streamlit GUI)
+├── create_clips_from_analysis.py # Automated clip creation from markdown analysis
+├── requirements.txt
+├── .streamlit/
+│   └── config.toml              # Upload size limits (2GB default)
+├── stacked_script/
+│   └── stack.py                 # Core video processing functions
+├── utils/
+│   └── burn_subs.py            # Standalone subtitle burning utility
+├── logos/                       # Brand assets — create locally, not tracked by git
+├── transcripts/                 # VTT files and clip-analysis markdown — not tracked
+├── source_video/                # Source MP4s for processing — not tracked
+└── output/                      # Generated portrait videos — not tracked
+```
+
+Place your logo at `logos/logo.png` to enable the watermark overlay.
+
+---
+
+## Alternative: Web Interface
+
+For one-off processing or when you don't have a VTT transcript:
 
 ```bash
 streamlit run pvg.py
 ```
 
-This opens a browser window with the full-featured GUI. The interface provides:
+Upload 2–4 MP4 files, assign positions, configure settings, and download the result. Supports files up to 2GB (configurable in `.streamlit/config.toml`).
 
-- **Drag-and-drop video upload** (MP4 files up to 2GB each)
-- **VTT subtitle file upload** for automatic caption burning
-- **Video mode selection** (2, 3, or 4 videos)
-- **Visual thumbnail selection** to assign videos to positions
-- **Per-video display settings** (zoom & crop or letterbox)
-- **Processing options**:
-  - Generate full video
-  - Create 1-3 clips with custom start times and durations
-  - Generate 5-second preview
-- **Optional burned-in titles** for each clip
-- **Real-time progress tracking**
-- **Instant preview and download**
+### Web Interface Workflow
 
-### Upload Size Configuration
-
-Default upload limit is 2GB per file. To change this, edit `.streamlit/config.toml`:
-
-```toml
-[server]
-maxUploadSize = 2000  # Size in MB (2GB default)
-```
-
-## 📖 Usage Guide
-
-### Basic Workflow
-
-1. **Launch the app**: `streamlit run pvg.py`
-2. **Upload videos**: Drag and drop 2-4 MP4 files
-3. **Upload captions** (optional): Add a VTT subtitle file
-4. **Select video mode**: Choose how many videos to stack (2, 3, or 4)
-5. **Assign positions**: Use dropdown menus to select which video goes where
-6. **Configure display settings**: For each video, choose zoom & crop (default) or letterbox
-7. **Choose processing mode**:
-   - **Full Video**: Process entire videos
-   - **Clips**: Create 1-3 clips with specified start times and durations (30/45/60s)
-8. **Add titles** (optional): Enter custom text to burn into each clip
-9. **Generate**: Click the button and wait for processing
-10. **Download**: Get your finished portrait videos
-
-### Advanced: Standalone Subtitle Burning
-
-For burning subtitles into existing videos:
-
-```bash
-python utils/burn_subs.py input_video.mp4 subtitles.vtt output_video.mp4
-```
-
-## 🎬 How It Works
-
-The Portrait Video Generator uses a multi-stage processing pipeline:
-
-### 1. Video Upload & Analysis
-- Upload 2-4 landscape MP4 video files
-- System extracts thumbnails for visual identification
-- Detects video dimensions, duration, and codec information
-
-### 2. Layout Configuration
-- **Select video mode**: 2, 3, or 4 videos
-- **Assign positions**: Choose which video appears in each slot
-- **Configure display per video**:
-  - **Zoom & Crop** (default): Fills allocated space completely by center-cropping
-  - **Letterbox**: Fits entire video with black bars if needed
-
-### 3. Caption Processing (Optional)
-- Upload VTT subtitle file covering the full video timeline
-- For clips: System automatically extracts relevant subtitle segments
-- Converts to ASS format with custom styling:
-  - 120pt Arial font
-  - Light purple text (#ECDDFF) with dark purple outline (#34008D)
-  - Positioned 850px from bottom for optimal mobile viewing
-  - Smart text wrapping prevents overflow
-
-### 4. Video Processing
-The processing engine (`stacked_script/stack.py`) handles:
-
-- **Resolution normalization**:
-  - Target output: 1080x1920 (9:16 portrait)
-  - 2-video mode: 960px height per video (50/50 split)
-  - 3-video mode: 640px height per video (33/33/33 split)
-  - 4-video mode: 480px height per video (25/25/25/25 split)
-- **Intelligent cropping**: Maintains aspect ratios with center-based crop
-- **Duration sync**: Automatically trims to shortest video length
-- **Subtitle burning**: FFmpeg integration for high-quality caption rendering
-- **Watermark overlay**: Adds custom logo in upper-left corner (if provided)
-- **Title burning**: Optional text overlay for clip identification
-- **Audio mixing**: Preserves audio from all source videos
-
-### 5. Output & Download
-- **File naming**:
-  - Full video: `{name}_portrait_stacked.mp4`
-  - Clips: `{name}_clip1_30s.mp4`, `{name}_clip2_45s.mp4`, etc.
-  - Preview: `{name}_preview.mp4`
-- **Format**: H.264 video codec, AAC audio codec, 30fps
-- **Quality**: Optimized for social media platforms
-- **Summary**: Processing time, file size, and duration for each output
-
-## 📐 Technical Specifications
-
-### Output Format
-- **Resolution**: 1080 x 1920 pixels (Full HD Portrait)
-- **Aspect Ratio**: 9:16 (optimized for mobile platforms)
-- **Frame Rate**: 30 FPS
-- **Video Codec**: H.264 (libx264) with optimized encoding
-- **Audio Codec**: AAC
-- **Background Color**: #ECDDFF (light purple, between video sections)
-
-### Video Section Dimensions
-- **2-video mode**: 1080 x 960px per video (50/50 split)
-- **3-video mode**: 1080 x 640px per video (33/33/33 split)
-- **4-video mode**: 1080 x 480px per video (25/25/25/25 split)
-
-### Caption Styling
-- **Font**: Arial, 120pt bold
-- **Text Color**: #ECDDFF (light purple/lavender)
-- **Outline**: #34008D (dark purple), 3px width
-- **Position**: 850px from bottom (optimized for 9:16 mobile viewing)
-- **Text Wrapping**: Automatic at ~22 characters per line
-- **Alignment**: Center-aligned with 80px left/right margins
-- **Shadow**: 3px offset for enhanced readability
-
-### System Requirements
-- **Python**: 3.8 or higher
-- **Dependencies**:
-  - `moviepy>=2.0.0` - Video processing engine
-  - `pillow>=9.2.0` - Image processing
-  - `streamlit>=1.28.0` - Web interface
-  - `FFmpeg` - Automatically installed with MoviePy
-- **Input**: MP4 video files (2-4 required)
-- **Optional**: VTT subtitle files, PNG/JPG watermark logo
-- **Storage**: Sufficient disk space for processing (at least 2x source file sizes)
-
-## 📄 License
-
-MIT License - Copyright 2025 Jason Hand
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+1. Upload 2–4 MP4 files and an optional VTT subtitle file
+2. Select video mode (2, 3, or 4 stacked videos)
+3. Assign each video to a position
+4. Choose zoom & crop or letterbox display per video
+5. Select processing mode: full video, clips (30/45/60s), or 5-second preview
+6. Optionally add a burned-in title (max 50 characters)
+7. Click **Generate** and download the result
 
 ---
 
-**Made with ❤️ for content creators everywhere**
+## Alternative: CLI
 
-*Star this project on GitHub if you find it useful!*
+For scripting or automation without Claude Code:
+
+```bash
+# Batch clip creation from a markdown analysis file
+python create_clips_from_analysis.py transcripts/episode_clip_suggestions.md varied
+
+# Standalone subtitle burning
+python utils/burn_subs.py input_video.mp4 subtitles.vtt output_video.mp4
+```
+
+### Multi-Cut Mode (Python API)
+
+```python
+from stacked_script.stack import create_multi_cut_video
+
+create_multi_cut_video(
+    video_paths=[video1, video2, video3],
+    output_path="output.mp4",
+    start_time=0.0,
+    duration=180.0,
+    subtitle_path="subtitles.vtt",
+    title_text=None
+)
+```
+
+---
+
+## Features
+
+### Video Layouts
+- **2-video mode**: 50/50 split — screen recording top, speaker bottom
+- **3-video mode**: Three equal sections stacked vertically
+- **4-video mode**: Four equal sections for multi-camera setups
+- **Multi-cut mode**: Dynamic quick cuts with speaker-aware switching, random zoom effects (1.05x–1.15x on 50% of segments), and letterbox layout for screen + webcam content
+
+### Caption System
+- Automatic VTT extraction and burning via FFmpeg
+- National 2 font, 120pt, light purple (#ECDDFF) with dark purple (#34008D) outline
+- Manual text wrapping at ~22 characters per line
+- Positioning: 850px from bottom (2-video), 750px (3-video), 400px (multi-cut)
+
+### Audio
+- Audio sourced directly from webcam files via FFmpeg `filter_complex amix`
+- Continuous mixed audio across all source videos throughout the full clip duration
+- Speaker-aware cutting uses real-time RMS analysis (sampled every 0.5s per segment)
+
+### Branding
+- Logo watermark at upper-left (`logos/logo.png`)
+- Optional burned-in title text per clip (National 2 Bold, 80pt)
+
+---
+
+## Technical Specifications
+
+| Property | Value |
+|----------|-------|
+| Output resolution | 1080 × 1920 (9:16) |
+| Frame rate | 30 FPS |
+| Video codec | H.264 (libx264) |
+| Audio codec | AAC 192k |
+| 2-video section | 1080 × 960px |
+| 3-video section | 1080 × 640px |
+| 4-video section | 1080 × 480px |
+
+---
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| No audio in output | Webcam files must be in `source_video/` — screen recordings have no audio |
+| MoviePy not installed | `pip install -r requirements.txt` |
+| FFmpeg issues | Install FFmpeg manually if auto-install fails |
+| VTT extraction fails | Verify VTT uses standard format: `HH:MM:SS.mmm --> HH:MM:SS.mmm` |
+| Captions overflow edges | Reduce `max_chars_per_line` in `wrap_subtitle_text()` in `stack.py` |
+| Logo not appearing | Ensure file exists at `logos/logo.png` |
+| Clips generated with wrong video | Rename your MP4s to share a common word with your VTT filename, or remove unrelated MP4s from `source_video/` — the script uses all files there as a fallback |
+
+---
+
+## License
+
+MIT License — Copyright 2026 Jason Hand
