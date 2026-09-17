@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Automated clip creation from VTT analysis
-Reads clip suggestions markdown file and generates video clips using stack.py
+CAIVE (Claude AI Video Editor) - Automated clip creation from VTT analysis
+
+Reads a clip suggestions markdown file (normally written by the
+vtt-clip-finder agent) and generates portrait video clips via
+``stacked_script.stack``. Claude runs this for you as the final step of the
+Shorts workflow; see README.md.
 """
 
 import sys

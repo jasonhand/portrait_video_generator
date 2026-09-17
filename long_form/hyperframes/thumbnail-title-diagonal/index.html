@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape" data-composition-variables='[
+  {"id":"title","type":"string","label":"Title","default":"Episode Title"}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        background: transparent;
+      }
+      .ribbon {
+        position: absolute;
+        inset: 0;
+        clip-path: polygon(1550px 0, 1920px 0, 1920px 1080px, 1050px 1080px);
+        background:
+          linear-gradient(155deg, rgba(52, 0, 141, 0.94) 0%, rgba(26, 31, 54, 0.97) 55%, rgba(0, 96, 255, 0.35) 100%),
+          #1a1f36;
+        opacity: 0;
+      }
+      .ribbon::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 7px),
+          linear-gradient(105deg, transparent 0 42%, rgba(0, 202, 255, 0.2) 48%, rgba(255, 0, 128, 0.18) 52%, transparent 58%);
+        mix-blend-mode: screen;
+        opacity: 0.5;
+      }
+      .ribbon__edge {
+        position: absolute;
+        inset: 0;
+        clip-path: polygon(1522px 0, 1550px 0, 1050px 1080px, 1022px 1080px);
+        background: linear-gradient(180deg, #34008d 0%, #a960ff 45%, #00caff 100%);
+        filter: drop-shadow(0 0 14px rgba(169, 96, 255, 0.55)) drop-shadow(0 0 26px rgba(0, 202, 255, 0.35));
+        opacity: 0;
+      }
+      .ribbon__rule {
+        position: absolute;
+        left: 1260px;
+        top: 618px;
+        width: 590px;
+        height: 3px;
+        background: linear-gradient(90deg, #34008d 0%, #a960ff 45%, #00caff 100%);
+        transform-origin: 0 50%;
+      }
+      .ribbon__text {
+        position: absolute;
+        left: 1260px;
+        top: 658px;
+        width: 590px;
+        color: #fff;
+        font-size: 72px;
+        font-weight: 700;
+        line-height: 1.18;
+        letter-spacing: -1px;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        text-shadow: 0 0 20px rgba(0, 202, 255, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="4"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div id="ribbon-edge" class="clip ribbon__edge" data-start="0" data-duration="4" data-track-index="1"></div>
+      <div id="ribbon" class="clip ribbon" data-start="0" data-duration="4" data-track-index="1">
+        <div id="ribbon-rule" class="ribbon__rule"></div>
+        <div id="ribbon-text" class="ribbon__text" data-var-text="title">Episode Title</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.to("#ribbon", {
+        opacity: 1,
+        duration: 0.7,
+        ease: "power2.out",
+      }, 0.1);
+      tl.to("#ribbon-edge", {
+        opacity: 1,
+        duration: 0.7,
+        ease: "power2.out",
+      }, 0.2);
+      tl.fromTo("#ribbon-text", { opacity: 0, y: 40 }, {
+        opacity: 1,
+        y: 0,
+        duration: 0.7,
+        ease: "power3.out",
+      }, 0.35);
+      tl.fromTo("#ribbon-rule", { scaleX: 0 }, {
+        scaleX: 1,
+        duration: 0.8,
+        ease: "power2.out",
+      }, 0.5);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

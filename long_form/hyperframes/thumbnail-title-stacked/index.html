@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape" data-composition-variables='[
+  {"id":"title","type":"string","label":"Title","default":"Episode Title"}
+]'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: transparent;
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        background: transparent;
+      }
+      .title-card {
+        position: absolute;
+        left: 90px;
+        top: 536px;
+        width: 680px;
+        height: 520px;
+        padding: 0;
+        overflow: visible;
+        opacity: 0;
+        transform: translateY(60px) scale(0.96);
+      }
+      .title-card__rule {
+        position: absolute;
+        left: 0;
+        right: 56px;
+        top: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #34008d 0%, #a960ff 45%, #00caff 100%);
+        transform-origin: 0 50%;
+      }
+      .title-card__text {
+        position: relative;
+        z-index: 5;
+        margin-top: 32px;
+        color: #fff;
+        font-size: 58px;
+        font-weight: 700;
+        line-height: 1.18;
+        letter-spacing: -1px;
+        text-align: left;
+        white-space: normal;
+        word-wrap: break-word;
+        text-shadow: 0 0 20px rgba(0, 202, 255, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="4"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="title-card"
+        class="clip title-card"
+        data-start="0"
+        data-duration="4"
+        data-track-index="1"
+      >
+        <div class="title-card__rule"></div>
+        <div class="title-card__text" data-var-text="title">Episode Title</div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.to("#title-card", {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        duration: 0.85,
+        ease: "power3.out",
+      }, 0.15);
+      tl.fromTo(".title-card__rule", { scaleX: 0 }, {
+        scaleX: 1,
+        duration: 0.8,
+        ease: "power2.out",
+      }, 0.45);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

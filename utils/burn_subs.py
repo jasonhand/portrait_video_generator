@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Standalone script to burn subtitles into videos using FFmpeg
-Usage: python burn_subs.py <video_file> <subtitle_file> [output_file]
+CAIVE (Claude AI Video Editor) - Standalone subtitle burner
+
+Burns subtitles into a video using FFmpeg with CAIVE caption styling.
+Usage: python burn_subs.py <video_file> <subtitle_file> [output_file] [video_mode]
 """
 
 import sys

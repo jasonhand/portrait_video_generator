@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
+      .camera-frame {
+        position: absolute;
+        /* Keep the animated outline fully inside the 440px camera column.
+           The previous -6px placement clipped the left edge of both tiles. */
+        left: 0px;
+        width: 448px;
+        height: 532px;
+        border: 4px solid transparent;
+        border-radius: 34px;
+        background: linear-gradient(110deg, #a960ff 0%, #00caff 28%, #fc00ef 52%, #8000ff 76%, #a960ff 100%) border-box;
+        background-size: 240% 100%;
+        -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        box-shadow: 0 0 18px rgba(169, 96, 255, .65), 0 0 32px rgba(0, 202, 255, .2);
+      }
+      .camera-frame::after {
+        content: "";
+        position: absolute;
+        inset: 3px;
+        border-radius: 28px;
+        background: repeating-linear-gradient(0deg, rgba(255,255,255,.07) 0 1px, transparent 1px 8px);
+        mix-blend-mode: screen;
+        opacity: .42;
+      }
+      #camera-frame-top { top: 2px; }
+      #camera-frame-bottom { top: 546px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080">
+      <div id="camera-frame-top" class="clip camera-frame" data-start="0" data-duration="10"></div>
+      <div id="camera-frame-bottom" class="clip camera-frame" data-start="0" data-duration="10"></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.to(".camera-frame", { backgroundPosition: "100% 50%", duration: 3.2, ease: "sine.inOut" }, 0);
+      tl.to(".camera-frame", { backgroundPosition: "0% 50%", duration: 3.2, ease: "sine.inOut" }, 3.2);
+      tl.to(".camera-frame", { backgroundPosition: "100% 50%", duration: 3.2, ease: "sine.inOut" }, 6.4);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

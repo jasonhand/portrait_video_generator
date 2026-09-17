@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
+      .pip-frame {
+        position: absolute;
+        left: 1584px;
+        top: 28px;
+        width: 308px;
+        height: 308px;
+        border: 4px solid transparent;
+        border-radius: 32px;
+        background: linear-gradient(120deg, #a960ff, #00caff 30%, #fc00ef 52%, #8000ff 75%, #a960ff) border-box;
+        background-size: 260% 100%;
+        -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        box-shadow: 0 0 18px rgba(169, 96, 255, .7), 0 0 36px rgba(0, 202, 255, .28);
+        opacity: .95;
+      }
+      .pip-frame::before {
+        content: "";
+        position: absolute;
+        inset: 3px;
+        border-radius: 23px;
+        background: repeating-linear-gradient(0deg, rgba(255,255,255,.09) 0 1px, transparent 1px 8px);
+        mix-blend-mode: screen;
+        opacity: .55;
+      }
+      .pip-frame::after {
+        content: "";
+        position: absolute;
+        inset: -8px;
+        border: 2px solid rgba(0, 202, 255, .25);
+        border-radius: 34px;
+        filter: blur(3px);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="10" data-width="1920" data-height="1080">
+      <div id="pip-frame" class="clip pip-frame" data-start="0" data-duration="10"></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.to("#pip-frame", { backgroundPosition: "100% 50%", duration: 3.2, ease: "sine.inOut" }, 0);
+      tl.to("#pip-frame", { backgroundPosition: "0% 50%", duration: 3.2, ease: "sine.inOut" }, 3.2);
+      tl.to("#pip-frame", { backgroundPosition: "100% 50%", duration: 3.2, ease: "sine.inOut" }, 6.4);
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

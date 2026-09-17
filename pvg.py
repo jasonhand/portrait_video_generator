@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Streamlit web interface for Video Stacker - Modern UI
-Provides a user-friendly GUI for creating portrait videos from landscape sources
+CAIVE (Claude AI Video Editor) - Legacy Streamlit web interface
+
+This GUI predates the conversational Claude workflow and is no longer the
+primary way to use CAIVE. It covers only the portrait/Shorts pipeline in
+``stacked_script.stack`` and has no support for the long-form landscape
+editor in ``long_form/``. Prefer editing by conversation with Claude; see
+README.md. Kept for manual, hands-on portrait work.
 """
 
 import streamlit as st
@@ -24,7 +29,7 @@ from stacked_script.stack import (
 
 # Page configuration
 st.set_page_config(
-    page_title="Portrait Video Generator",
+    page_title="CAIVE - Portrait Editor (Legacy UI)",
     page_icon="",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -572,10 +577,10 @@ else:
 st.markdown(f'''
     <div class="main-header">
         {logo_html}
-        <span>Portrait Video Generator</span>
+        <span>CAIVE - Portrait Editor</span>
     </div>
 ''', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Upload your videos and create portrait formatted content for YouTube Shorts, TikTok, and Instagram Reels</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Legacy manual interface. For the full CAIVE experience - including long-form landscape edits - just ask Claude.</p>', unsafe_allow_html=True)
 
 # Add sticky logo in corner (visible throughout app)
 if logo_html:

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-Video Stacker - Convert 2 or 3 landscape videos to portrait format
-Supports two modes:
+CAIVE (Claude AI Video Editor) - Portrait/Shorts rendering engine
+
+Converts landscape videos to portrait (1080x1920) format. Supports:
 - 2-video mode: 50/50 split with center-cropped videos filling entire screen
 - 3-video mode: Three equal sections stacked vertically
-Combines MP4 files into a single portrait video for YouTube Shorts/TikTok
+- 4-video mode: Four equal sections stacked vertically
+- multi-cut mode: Dynamic quick cuts with speaker-aware selection and zoom
+
+This module is the Shorts engine. The long-form 16:9 editor lives in the
+separate ``long_form`` package and must not call into this module.
+Normally driven by conversation with Claude; see README.md.
 """
 
 import os
@@ -921,7 +927,7 @@ def get_existing_subtitles(directory, start_time, duration):
 def display_menu(video_files):
     """Display menu for selecting videos"""
     print("\n" + "="*60)
-    print("VIDEO STACKER - Portrait Format Creator")
+    print("CAIVE - Portrait Format Creator")
     print("="*60)
     print("\nAvailable MP4 files:")
 
@@ -1059,6 +1065,10 @@ def create_multi_cut_video(video_paths, output_path, start_time=0, duration=None
         else:
             webcam_video_indices.append(i)
             print(f"  → Detected as WEBCAM video")
+
+    # Reverse webcam order so the letterbox layout places the second-detected
+    # webcam on top (screen video stays in the middle, other webcam on bottom)
+    webcam_video_indices.reverse()
 
     # Determine target duration based on available content in each clip
     min_available = min(clip.duration - ls for clip, ls in zip(clips, local_starts))
@@ -1515,14 +1525,22 @@ def create_multi_cut_video(video_paths, output_path, start_time=0, duration=None
 
     # Add logo overlay
     # Logo is in the parent directory's logos folder
-    logo_path = Path(__file__).parent.parent / "logos" / "logo.png"
+    logo_path = Path(__file__).parent.parent / "logos" / "ai_tl_logo.png"
     if logo_path.exists():
         print("\nAdding logo overlay...")
         try:
-            logo_clip = ImageClip(str(logo_path))
-            logo_height = target_height // 6  # 1/6 of screen height for full-screen mode
-            logo_resized = logo_clip.resized(height=logo_height)
-            logo_positioned = logo_resized.with_position((2, 2)).with_duration(target_duration)
+            # Crop transparent padding around the logo artwork so its bounding box
+            # matches the visible graphic instead of the full source canvas
+            logo_img = Image.open(str(logo_path))
+            logo_bbox = logo_img.getbbox()
+            if logo_bbox:
+                logo_img = logo_img.crop(logo_bbox)
+            logo_clip = ImageClip(np.array(logo_img))
+            logo_width = target_width // 3  # No more than 1/3 of screen width
+            logo_resized = logo_clip.resized(width=logo_width)
+            logo_padding = 5
+            logo_x = target_width - logo_resized.w - logo_padding
+            logo_positioned = logo_resized.with_position((logo_x, logo_padding)).with_duration(target_duration)
 
             # Composite logo onto video
             # Preserve audio explicitly — CompositeVideoClip does not inherit audio from child clips
@@ -1530,7 +1548,7 @@ def create_multi_cut_video(video_paths, output_path, start_time=0, duration=None
             final_video = CompositeVideoClip([final_video, logo_positioned], size=(target_width, target_height))
             if _audio_before_logo is not None:
                 final_video = final_video.with_audio(_audio_before_logo)
-            print(f"✓ Logo added at upper left (size: {logo_resized.w}x{logo_resized.h})")
+            print(f"✓ Logo added at upper right (size: {logo_resized.w}x{logo_resized.h})")
         except Exception as e:
             print(f"Warning: Could not add logo overlay: {e}")
     else:
@@ -1614,8 +1632,7 @@ def create_multi_cut_video(video_paths, output_path, start_time=0, duration=None
             title_text = title_text[:50]
             title_text_escaped = title_text.replace("'", "'\\''").replace(":", "\\:")
 
-            logo_height = target_height // 6
-            logo_x_offset = logo_height + 20
+            title_x = 50
             title_y = 50
 
             # Find font path dynamically
@@ -1628,11 +1645,11 @@ def create_multi_cut_video(video_paths, output_path, start_time=0, duration=None
                 f"fontcolor=white:"
                 f"borderw=3:"
                 f"bordercolor=#34008D:"
-                f"x={logo_x_offset}:"
+                f"x={title_x}:"
                 f"y={title_y}"
             )
             vf_filters.append(title_filter)
-            print(f"Title text: '{title_text}' (position: top left next to logo)")
+            print(f"Title text: '{title_text}' (position: top left)")
 
         # Combine filters
         if vf_filters:
